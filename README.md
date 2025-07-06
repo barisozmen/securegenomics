@@ -25,9 +25,13 @@ Built for
 > ⚠️ Alpha stage — active research tool. Contributions & collaborations welcome.
 
 # How it works
+```bash
+$ pip install git+https://github.com/securegenomics/securegenomics.git # installation
+```
+
 ### Bob (scientist) 👨
 On his laptop 💻
-```python
+```bash
 # Bob creates a new project
 $ securegenomics project create
 # ☝️ this command, asks Bob to choose an open-source, shareable experiment protocol from https://github.com/securegenomics/ . He chooses `protocol-alzheimers-sensitive-allele-frequency`. All protocols involve scripts for encoding, encryption, computation, decoding, and result interpretation
