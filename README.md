@@ -27,11 +27,6 @@ Built for
 &nbsp;&nbsp;&nbsp;
 
 # How it works
-Install
-```bash
-$ pip install git+https://github.com/securegenomics/securegenomics.git
-```
-
 ### Bob (scientist) 👨
 On his laptop 💻
 ```bash
@@ -91,7 +86,12 @@ What really happened?
 - 🙋‍♀️ Alice and other contributors are happy, because they kept their DNA private (cryptographically guaranteed)
 - 🗄️🔐 Data was always in encrypted form on the server
 
-## Experiment Protocols
+# Installation
+```bash
+$ pip install git+https://github.com/securegenomics/securegenomics.git
+```
+
+# Experiment Protocols
 Main Hub - [github.com/orgs/securegenomics/repositories](https://github.com/orgs/securegenomics/repositories)
 
 Pick a research protocol above, or create your custom protocol and merge into this repo.
