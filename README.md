@@ -106,7 +106,7 @@ This is the truth base for all computations. You can verify and prove others whi
    
 
 
-# What is cooking?
+# Next
 
 ## 🔐 Hash-Based Provenance: Scientific Truth as a Chain of Commitments
 
