@@ -20,9 +20,11 @@ Built for
 - 🧠 Researchers — collaborate across silos, globally, securely
 - 🔐 Privacy maximalists — zero-trust compute with cryptographic guarantees
 
-
+&nbsp;&nbsp;&nbsp;
 
 > ⚠️ Alpha stage — active research tool. Contributions & collaborations welcome.
+
+&nbsp;&nbsp;&nbsp;
 
 # How it works
 Install
