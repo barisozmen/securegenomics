@@ -25,8 +25,9 @@ Built for
 > ⚠️ Alpha stage — active research tool. Contributions & collaborations welcome.
 
 # How it works
+Install
 ```bash
-$ pip install git+https://github.com/securegenomics/securegenomics.git # installation
+$ pip install git+https://github.com/securegenomics/securegenomics.git
 ```
 
 ### Bob (scientist) 👨
