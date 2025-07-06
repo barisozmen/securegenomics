@@ -18,7 +18,7 @@ Built for
 - 🧪 Biobanks — monetize datasets without compromising privacy
 - 🌍 GDPR/HIPAA-safe by design
 - 🧠 Researchers — collaborate across silos, globally, securely
-- 🔐 Privacy maximalists — zero-trust compute with cryptographic guarantees
+- 🔐 Zero-trust compute with cryptographic guarantees
 
 &nbsp;&nbsp;&nbsp;
 
