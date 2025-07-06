@@ -103,10 +103,10 @@ This is the truth base for all computations. You can verify and prove others whi
     - Private vs Public Genomic Data ([see](https://github.com/barisozmen/genomic-privacy-book/blob/main/04a-private_genome_silos.md))
     - FHE mathematical foundations ([fhe](https://github.com/barisozmen/genomic-privacy-book/blob/main/06-homomorphic_encryption_he.md), [math overview](https://github.com/barisozmen/genomic-privacy-book/blob/main/06aa-math_foundations_overview.md), [algebra](https://github.com/barisozmen/genomic-privacy-book/blob/main/06ab-algebra_foundations.md), [lattice-based cryptography](https://github.com/barisozmen/genomic-privacy-book/blob/main/06ac-lattice_based_cryptography_foundations.md))
     - Privacy technologies overview ([see](https://github.com/barisozmen/genomic-privacy-book/blob/main/03-privacy_technologies.md))
-   
 
 
-# Next
+
+# Future Work
 
 ## 🔐 Hash-Based Provenance: Scientific Truth as a Chain of Commitments
 
@@ -122,11 +122,3 @@ Treat **every computation** as a cryptographically signed step:
 This results in a **chain of composable, tamper-proof proofs** that describe **exactly** how an output came to be — like Git commits, but across data + code + math.
 
 📌 **Even if you don’t share your input data**, others can **verify** that your output hash is consistent with what it should be, given the hash of your data and your open-source computation protocol. 
-
-
-
----
-
-**Built with ❤️ for privacy-preserving genomic research**
-
-*SecureGenomics CLI v0.1.0 - Making research more collaborative and private*
