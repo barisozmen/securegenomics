@@ -46,11 +46,16 @@ mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/g
 securegenomics upload <project-id> ~/data/genome/LP6005441-DNA_C05.annotated.nh2.variants.vcf
 ```
 
-
 ## Researcher's Computer Again
 ```bash
 securegenomics view <project-id>
 securegenomics run <project-id>
 securegenomics status <project-id>
 securegenomics result <project-id>
+```
+
+
+## At the end
+```bash
+rm -rf ~/data/genome
 ```

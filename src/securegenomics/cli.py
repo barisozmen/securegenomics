@@ -516,6 +516,8 @@ def project_create(
     
     Interactive mode (default): Guides you through protocol selection
     Non-interactive mode: Requires --protocol option
+    
+    After creating the project, automatically generates and uploads crypto context.
     """
     try:
         project_manager = ProjectManager()
@@ -530,16 +532,7 @@ def project_create(
             # Create project directly
             project_id = project_manager.create(protocol_name)
             
-            if json_output:
-                import json
-                result = {
-                    "success": True,
-                    "project_id": project_id,
-                    "protocol_name": protocol_name,
-                    "description": description or None
-                }
-                console.print(json.dumps(result))
-            else:
+            if not json_output:
                 console.print(f"✅ Created project: {project_id}", style="green")
                 console.print(f"Protocol: {protocol_name}")
                 if description:
@@ -548,15 +541,29 @@ def project_create(
             # Interactive mode - original behavior
             project_id = project_manager.interactive_create()
             
-            if json_output:
-                import json
-                result = {
-                    "success": True,
-                    "project_id": project_id
-                }
-                console.print(json.dumps(result))
-            else:
+            if not json_output:
                 console.print(f"✅ Created project: {project_id}", style="green")
+        
+        # Automatically generate and upload crypto context after project creation
+        if not json_output:
+            console.print("🔄 Generating and uploading crypto context...", style="blue")
+        
+        crypto_context_manager = CryptoContextManager()
+        crypto_context_manager.generate_upload_crypto_context(project_id)
+        
+        if json_output:
+            import json
+            result = {
+                "success": True,
+                "project_id": project_id,
+                "protocol_name": protocol_name if not interactive else None,
+                "description": description or None,
+                "crypto_context_ready": True
+            }
+            console.print(json.dumps(result))
+        else:
+            console.print(f"✅ Project {project_id} is ready for data upload!", style="green")
+            console.print(f"💡 Next step: Upload VCF data with 'securegenomics data encode_encrypt_upload {project_id} <vcf-file>'", style="blue")
                 
     except Exception as e:
         if json_output:
