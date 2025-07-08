@@ -2,7 +2,7 @@
 
 **Compute on encrypted data. Mathematical guaranties on individual data privacy.**
 
-SecureGenomics Engine is a platform for privacy-preserving genomic analysis using [Fully Homomorphic Encryption (FHE)](https://vitalik.eth.limo/general/2020/07/20/homomorphic.html). It lets scientists run population-scale studies, GWAS, allele frequency analysis — all without ever decrypting sensitive data.
+SecureGenomics Engine is a platform for privacy-preserving genomic analysis using [Fully Homomorphic Encryption (FHE)](https://vitalik.eth.limo/general/2020/07/20/homomorphic.html) and federated computing. It lets scientists run population-scale studies, GWAS, allele frequency analysis — all without ever decrypting sensitive data.
 
 &nbsp;&nbsp;&nbsp;
 
@@ -26,7 +26,7 @@ Built for
 
 &nbsp;&nbsp;&nbsp;
 
-# How it works
+# Quick Start
 Install
 ```bash
 $ pip install git+https://github.com/securegenomics/securegenomics.git
@@ -63,7 +63,7 @@ For data owners (biobanks, individuals, etc.):
 $ securegenomics upload <project-id> data.vcf
 ```
 
-## 🚀 Same workflow with more detailed explanations
+## 🚀 Same workflow explained by a scenario
 
 ### Bob (scientist) 👨
 On his laptop 💻

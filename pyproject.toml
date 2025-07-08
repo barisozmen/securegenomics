@@ -59,6 +59,8 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["securegenomics*"]
+exclude = ["tests*", "*.tests", "*.tests.*", "tests.*"]
 
 [tool.black]
 line-length = 88
