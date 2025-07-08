@@ -70,7 +70,38 @@ securegenomics system status
 
 ## Quick Start
 
-### 1. Account Setup
+### 🚀 Super Simple Workflow (Recommended)
+
+For researchers:
+```bash
+# 1. Login
+securegenomics login
+
+# 2. Create project (interactive - choose protocol)
+securegenomics create
+
+# 3. Generate crypto keys
+securegenomics keygen <project-id>
+
+# 4. Run analysis
+securegenomics run <project-id>
+
+# 5. Check status
+securegenomics status <project-id>
+
+# 6. Get results
+securegenomics result <project-id>
+```
+
+For data owners (biobanks, individuals, etc.):
+```bash
+# 1. Upload data
+securegenomics upload <project-id> data.vcf
+```
+
+### 🔧 Advanced Setup (Full Control)
+
+#### 1. Account Setup
 
 ```bash
 # Register a new account (interactive)
@@ -83,7 +114,7 @@ securegenomics auth login
 securegenomics auth whoami
 ```
 
-### 2. Explore Available Protocols
+#### 2. Explore Available Protocols
 
 ```bash
 # List all available research protocols
@@ -93,14 +124,14 @@ securegenomics protocol list
 securegenomics protocol locals
 ```
 
-### 3. Run Local Analysis (No Server Required)
+#### 3. Run Local Analysis (No Server Required)
 
 ```bash
 # Download and analyze a VCF file locally
 securegenomics local analyze alzheimers-risk sample.vcf
 ```
 
-### 4. Create Multi-Party Study
+#### 4. Create Multi-Party Study
 
 ```bash
 # Create a new project (interactive)
@@ -210,7 +241,42 @@ securegenomics local analyze alzheimers-risk sample.vcf
 # 3. View results immediately
 ```
 
-### Workflow 2: Multi-Party Study (Researcher)
+### Workflow 2: Multi-Party Study (Researcher) - Simple Commands
+
+```bash
+# 1. Login
+securegenomics login
+
+# 2. Create project (interactive - choose protocol)
+securegenomics create
+
+# 3. Generate crypto keys
+securegenomics keygen <project-id>
+
+# 4. Share project ID with collaborators
+securegenomics view <project-id>
+
+# 5. Run computation when ready
+securegenomics run <project-id>
+
+# 6. Check status
+securegenomics status <project-id>
+
+# 7. Download results
+securegenomics result <project-id>
+```
+
+### Workflow 3: Data Contribution (Collaborator) - Simple Commands
+
+```bash
+# 1. Upload data to project
+securegenomics upload <project-id> my-data.vcf
+
+# 2. Verify contribution
+securegenomics view <project-id>
+```
+
+### Workflow 4: Multi-Party Study (Researcher) - Advanced Commands
 
 ```bash
 # 1. Create project
@@ -232,7 +298,7 @@ securegenomics project run <project-id>
 securegenomics project result <project-id>
 ```
 
-### Workflow 3: Data Contribution (Collaborator)
+### Workflow 5: Data Contribution (Collaborator) - Advanced Commands
 
 ```bash
 # 1. Process VCF file for specific project
@@ -242,7 +308,7 @@ securegenomics data encode_encrypt_upload <project-id> my-data.vcf
 securegenomics project view <project-id>
 ```
 
-### Workflow 4: Step-by-Step Data Processing
+### Workflow 6: Step-by-Step Data Processing
 
 ```bash
 # Step 1: Encode VCF using protocol
@@ -267,7 +333,28 @@ securegenomics --quiet     # Suppress output
 securegenomics --verbose   # Detailed output
 ```
 
-### Authentication Commands
+### Simple Commands (Recommended)
+
+```bash
+# Authentication
+securegenomics login              # Login to account
+securegenomics logout             # Logout
+
+# Project Management
+securegenomics create             # Create new project (interactive)
+securegenomics view <project-id>  # View project details
+securegenomics keygen <project-id> # Generate and upload crypto keys
+securegenomics run <project-id>   # Start computation
+securegenomics status <project-id> # Check status
+securegenomics result <project-id> # Get results
+
+# Data Operations
+securegenomics upload <project-id> <vcf-file> # Upload VCF data
+```
+
+### Advanced Commands (Full Control)
+
+#### Authentication Commands
 
 ```bash
 securegenomics auth login [--email EMAIL] [--password PASSWORD]
@@ -278,7 +365,7 @@ securegenomics auth quick
 securegenomics auth delete_profile
 ```
 
-### Protocol Commands
+#### Protocol Commands
 
 ```bash
 securegenomics protocol list [--json]
@@ -289,7 +376,7 @@ securegenomics protocol remove_local <protocol-name>
 securegenomics protocol refresh <protocol-name>
 ```
 
-### Project Commands
+#### Project Commands
 
 ```bash
 securegenomics project create [--protocol PROTOCOL] [--description DESC]
@@ -303,7 +390,7 @@ securegenomics project list_saved_results <project-id>
 securegenomics project delete <project-id>
 ```
 
-### Crypto Context Commands
+#### Crypto Context Commands
 
 ```bash
 securegenomics crypto_context generate <project-id>
@@ -313,7 +400,7 @@ securegenomics crypto_context generate_upload <project-id>
 securegenomics crypto_context delete <project-id> [--local] [--server]
 ```
 
-### Data Processing Commands
+#### Data Processing Commands
 
 ```bash
 securegenomics data encode <project-id> <vcf-file> [--output-dir DIR]
@@ -322,13 +409,13 @@ securegenomics data upload <project-id> <encrypted-file>
 securegenomics data encode_encrypt_upload <project-id> <vcf-file> [--output-dir DIR]
 ```
 
-### Local Analysis Commands
+#### Local Analysis Commands
 
 ```bash
 securegenomics local analyze <protocol-name> <vcf-file>
 ```
 
-### System Commands
+#### System Commands
 
 ```bash
 securegenomics system status
@@ -565,3 +652,8 @@ For issues and questions:
 3. Visit the [GitHub repository](https://github.com/securegenomics/secure-genomics-v2) for issues
 4. Check the [protocol repository](https://github.com/orgs/securegenomics/repositories) for protocol-specific questions
 
+---
+
+**Built with ❤️ for privacy-preserving genomic research**
+
+*SecureGenomics CLI v0.1.0 - Making genomic research more collaborative and private*

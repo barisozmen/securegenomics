@@ -108,6 +108,37 @@ securegenomics auth quick
 
 ## Quick Start
 
+### 🚀 Super Simple Workflow
+
+For researchers:
+```bash
+# 1. Login
+securegenomics login
+
+# 2. Create project (interactive - choose protocol)
+securegenomics create
+
+# 3. Generate crypto keys
+securegenomics keygen <project-id>
+
+# 4. Run analysis
+securegenomics run <project-id>
+
+# 5. Check status
+securegenomics status <project-id>
+
+# 6. Get results
+securegenomics result <project-id>
+```
+
+For data owners (biobanks, individuals, etc.):
+```bash
+# 1. Upload data
+securegenomics upload <project-id> data.vcf
+```
+
+### 🔧 Advanced Commands (Full Control)
+
 ```bash
 # Register account (interactive - secure password input)
 securegenomics auth register
@@ -180,7 +211,28 @@ securegenomics project delete <project-id>
 
 ## Command Reference
 
-### Authentication
+### Simple Commands (Recommended)
+
+```bash
+# Authentication
+securegenomics login              # Login to account
+securegenomics logout             # Logout
+
+# Project Management
+securegenomics create             # Create new project (interactive)
+securegenomics view <project-id>  # View project details
+securegenomics keygen <project-id> # Generate and upload crypto keys
+securegenomics run <project-id>   # Start computation
+securegenomics status <project-id> # Check status
+securegenomics result <project-id> # Get results
+
+# Data Operations
+securegenomics upload <project-id> <vcf-file> # Upload VCF data
+```
+
+### Advanced Commands (Full Control)
+
+#### Authentication
 
 **Interactive Mode (Recommended)**
 ```bash
@@ -212,14 +264,14 @@ securegenomics auth register --non-interactive
 - ✅ Password confirmation for registration
 - 🔑 JWT token auto-refresh
 
-### Protocols
+#### Protocols
 ```bash
 securegenomics protocol list                    # List from GitHub
 securegenomics protocol fetch <protocol-name>   # Clone from GitHub
 securegenomics protocol verify <protocol-name>  # Verify integrity
 ```
 
-### Projects (Aggregated Analysis)
+#### Projects (Aggregated Analysis)
 ```bash
 # Project Management
 securegenomics project create                            # Interactive project creation
