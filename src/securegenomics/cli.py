@@ -1329,6 +1329,244 @@ def project_delete(
         raise typer.Exit(1)
 
 
+# ============================================================================
+# COMMAND ALIASES (for convenience)
+# ============================================================================
+
+# Auth aliases
+@app.command("login")
+def login_alias(
+    email: Optional[str] = typer.Option(None, "--email", "-e", help="Email address (optional, will prompt if not provided)"),
+    password: Optional[str] = typer.Option(None, "--password", "-p", help="Password (optional, will prompt securely if not provided)"),
+    interactive: bool = typer.Option(True, "--interactive/--non-interactive", help="Use interactive mode (default: true)"),
+) -> None:
+    """Login to SecureGenomics server (alias for 'auth login')."""
+    auth_login(email, password, interactive)
+
+
+@app.command("logout")
+def logout_alias() -> None:
+    """Logout from SecureGenomics (alias for 'auth logout')."""
+    auth_logout()
+
+
+@app.command("whoami")
+def whoami_alias() -> None:
+    """Show current user information (alias for 'auth whoami')."""
+    auth_whoami()
+
+
+@app.command("register")
+def register_alias(
+    email: Optional[str] = typer.Option(None, "--email", "-e", help="Email address (optional, will prompt if not provided)"),
+    password: Optional[str] = typer.Option(None, "--password", "-p", help="Password (optional, will prompt securely if not provided)"),
+    interactive: bool = typer.Option(True, "--interactive/--non-interactive", help="Use interactive mode (default: true)"),
+) -> None:
+    """Register new SecureGenomics account (alias for 'auth register')."""
+    auth_register(email, password, interactive)
+
+
+@app.command("quick")
+def quick_alias() -> None:
+    """Quick login (alias for 'auth quick')."""
+    auth_quick()
+
+
+# Crypto context aliases
+@app.command("keygen")
+def keygen_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+) -> None:
+    """Generate FHE crypto context for project (alias for 'crypto_context generate')."""
+    crypto_context_generate(project_id)
+
+
+@app.command("keyupload")
+def keyupload_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+) -> None:
+    """Upload crypto context to server (alias for 'crypto_context upload')."""
+    crypto_context_upload(project_id)
+
+
+@app.command("keygen_upload")
+def keygen_upload_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+) -> None:
+    """Generate and upload crypto context (alias for 'crypto_context generate_upload')."""
+    crypto_context_generate_upload(project_id)
+
+
+@app.command("keydownload")
+def keydownload_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+) -> None:
+    """Download crypto context from server (alias for 'crypto_context download')."""
+    crypto_context_download(project_id)
+
+
+@app.command("keydelete")
+def keydelete_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+    local: bool = typer.Option(False, "--local", help="Delete local crypto context"),
+    server: bool = typer.Option(False, "--server", help="Delete server crypto context"),
+) -> None:
+    """Delete crypto context (alias for 'crypto_context delete')."""
+    crypto_context_delete(project_id, local, server)
+
+
+# Project aliases
+@app.command("create")
+def create_alias(
+    protocol_name: Optional[str] = typer.Option(None, "--protocol", "-p", help="Protocol name (non-interactive mode)"),
+    description: Optional[str] = typer.Option(None, "--description", "-d", help="Project description (optional)"),
+    interactive: bool = typer.Option(True, "--interactive/--non-interactive", help="Use interactive mode (default: true)"),
+    json_output: bool = typer.Option(False, "--json", help="Output result as JSON")
+) -> None:
+    """Create new project (alias for 'project create')."""
+    project_create(protocol_name, description, interactive, json_output)
+
+
+@app.command("list")
+def list_alias(
+    detailed: bool = typer.Option(False, "--detailed", help="Show detailed project information"),
+) -> None:
+    """List your projects (alias for 'project list')."""
+    project_list(detailed)
+
+
+@app.command("view")
+def view_alias(
+    project_id: str = typer.Argument(..., help="Project ID to view"),
+) -> None:
+    """View project details (alias for 'project view')."""
+    project_view(project_id)
+
+
+@app.command("run")
+def run_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+) -> None:
+    """Start computation for project (alias for 'project run')."""
+    project_run(project_id)
+
+
+@app.command("stop")
+def stop_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+) -> None:
+    """Stop computation for project (alias for 'project stop')."""
+    project_stop(project_id)
+
+
+@app.command("status")
+def status_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+) -> None:
+    """Check job status for project (alias for 'project job_status')."""
+    project_job_status(project_id)
+
+
+@app.command("result")
+def result_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+) -> None:
+    """Get results for completed project (alias for 'project result')."""
+    project_result(project_id)
+
+
+@app.command("delete")
+def delete_alias(
+    project_id: str = typer.Argument(..., help="Project ID to delete"),
+) -> None:
+    """Delete a project (alias for 'project delete')."""
+    project_delete(project_id)
+
+
+@app.command("job_status")
+def job_status_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+) -> None:
+    """Check job status for project (alias for 'project job_status')."""
+    project_job_status(project_id)
+
+
+# Data aliases
+@app.command("upload")
+def upload_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+    vcf_file: Path = typer.Argument(..., help="VCF file to process", exists=True),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Output directory for intermediate files (default: project data cache)"),
+) -> None:
+    """Complete VCF upload pipeline (alias for 'data encode_encrypt_upload')."""
+    data_encode_encrypt_upload(project_id, vcf_file, output_dir)
+
+
+@app.command("encode_encrypt_upload")
+def encode_encrypt_upload_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+    vcf_file: Path = typer.Argument(..., help="VCF file to process", exists=True),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Output directory for intermediate files (default: project data cache)"),
+) -> None:
+    """Complete VCF processing pipeline (alias for 'data encode_encrypt_upload')."""
+    data_encode_encrypt_upload(project_id, vcf_file, output_dir)
+
+
+@app.command("encode")
+def encode_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+    vcf_file: Path = typer.Argument(..., help="VCF file to encode", exists=True),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Output directory (default: project data cache)"),
+) -> None:
+    """Encode VCF file (alias for 'data encode')."""
+    data_encode(project_id, vcf_file, output_dir)
+
+
+@app.command("encrypt")
+def encrypt_alias(
+    project_id: str = typer.Argument(..., help="Project ID"),
+    encoded_file: Path = typer.Argument(..., help="Encoded file to encrypt", exists=True),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Output directory (default: project data cache)"),
+) -> None:
+    """Encrypt encoded data (alias for 'data encrypt')."""
+    data_encrypt(project_id, encoded_file, output_dir)
+
+
+# Protocol aliases
+@app.command("protocols")
+def protocols_alias(
+    json_output: bool = typer.Option(False, "--json", help="Output protocols as JSON")
+) -> None:
+    """List available protocols (alias for 'protocol list')."""
+    protocol_list(json_output)
+
+
+@app.command("fetch")
+def fetch_alias(
+    protocol_name: str = typer.Argument(..., help="Protocol name to fetch"),
+) -> None:
+    """Fetch protocol from GitHub (alias for 'protocol fetch')."""
+    protocol_fetch(protocol_name)
+
+
+@app.command("verify")
+def verify_alias(
+    protocol_name: str = typer.Argument(..., help="Protocol name to verify"),
+) -> None:
+    """Verify protocol integrity (alias for 'protocol verify')."""
+    protocol_verify(protocol_name)
+
+
+# Local analysis alias
+@app.command("analyze")
+def analyze_alias(
+    protocol_name: str = typer.Argument(..., help="Protocol name"),
+    vcf_file: Path = typer.Argument(..., help="VCF file to analyze", exists=True),
+) -> None:
+    """Run local analysis on VCF file (alias for 'local analyze')."""
+    local_analyze(protocol_name, vcf_file)
+
+
 # Entry point
 def _sanitize_error_message(error_msg: str) -> str:
     """Sanitize error message to prevent Rich markup errors with binary data."""

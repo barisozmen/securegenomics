@@ -1,6 +1,6 @@
 # SecureGenomics™
 
-**Compute on encrypted data. Zero trust. Full science**
+**Compute on encrypted data. Mathematical guaranties on individual data privacy.**
 
 SecureGenomics Engine is a platform for privacy-preserving genomic analysis using [Fully Homomorphic Encryption (FHE)](https://vitalik.eth.limo/general/2020/07/20/homomorphic.html). It lets scientists run population-scale studies, GWAS, allele frequency analysis — all without ever decrypting sensitive data.
 
@@ -16,9 +16,9 @@ SecureGenomics Engine is a platform for privacy-preserving genomic analysis usin
 
 Built for
 - 🧪 Biobanks — monetize datasets without compromising privacy
-- 🌍 GDPR/HIPAA-safe by design
 - 🧠 Researchers — collaborate across silos, globally, securely
-- 🔐 Privacy maximalists — zero-trust compute with cryptographic guarantees
+- 🌍 GDPR/HIPAA - safe by design
+- 🔐 Zero-trust compute with cryptographic guarantees
 
 &nbsp;&nbsp;&nbsp;
 
@@ -32,15 +32,48 @@ Install
 $ pip install git+https://github.com/securegenomics/securegenomics.git
 ```
 
+## 🚀 Super Simple Workflow
+
+For those who want the quickest path to running secure genomic analysis
+
+For researchers:
+```bash
+# 1. Login
+$ securegenomics login
+
+# 2. Create project (interactive - choose protocol)
+$ securegenomics create
+
+# 3. Generate crypto keys
+$ securegenomics keygen <project-id>
+
+# 5. Run analysis
+$ securegenomics run <project-id>
+
+# 6. Check status
+$ securegenomics status <project-id>
+
+# 7. Get results
+$ securegenomics result <project-id>
+```
+
+For data owners (biobanks, individuals, etc.):
+```bash
+# 1. Upload data
+$ securegenomics upload <project-id> data.vcf
+```
+
+## 🚀 Same workflow with more detailed explanations
+
 ### Bob (scientist) 👨
 On his laptop 💻
 ```bash
 # Bob creates a new project
-$ securegenomics project create
+$ securegenomics create
 # ☝️ this command, asks Bob to choose an open-source, shareable experiment protocol from https://github.com/securegenomics/ . He chooses `protocol-alzheimers-sensitive-allele-frequency`. All protocols involve scripts for encoding, encryption, computation, decoding, and result interpretation
 
 # Bob generates a public-private crypto context pair
-$ securegenomics crypto_context generate <project-id> 
+$ securegenomics keygen <project-id> 
 # ☝️ this command, under the hood, uploads public crypto context to the SecureGenomics server
 ```
 
@@ -52,38 +85,38 @@ On her computer 🖥️
 # 👨 – Don't worry, I know an awesome secure tool to do this! Use my <project-id>, encrypt your data and upload to the server!
 # 👩 – Cool!
 
-# Alice encodes her genomic data, using the project id
-$ securegenomics data encode <project-id> data.vcf
+# Alice uploads her genomic data using the complete pipeline
+$ securegenomics upload <project-id> data.vcf
+# ☝️ under the hood, it encodes, encrypts, and uploads the data in one command
 
-# Alice encrypts her genomic data with Bob's public key
-$ securegenomics data encrypt <project-id> data.vcf.encoded 
-# ☝️ under the hood, it downloads public crypto context from SecureGenomics server
-
-# Alice uploads encrypted data to the server
-$ securegenomics data upload <project-id> data.vcf.encrypted
+# Or Alice can do it step by step:
+# $ securegenomics encode <project-id> data.vcf
+# $ securegenomics encrypt <project-id> data.vcf.encoded 
+# $ securegenomics data upload <project-id> data.vcf.encrypted
 
 # ℹ️ All above commands use the online protocol code from shared experiment Github repository.
-# 🔐 Protocol code scripts are hashed and signs all steps (knowing this isn't essential now, but helpful later)
 ```
 
 ### Others (own sensitive data too)
 On their local computers 💻
-```python
-# Think what happened just above, and imagine a for loop with Dave, Frank, George, Carol, ...
+```bash
+# Dave, Frank, George, Carol, ... all do the same:
+$ securegenomics upload <project-id> their-data.vcf
+# ☝️ Each person uploads their encrypted genomic data to the same project
 ```
 
 ### Same Bob again (the scientist) 👨
 On his laptop 💻
-```python
+```bash
 # Checks his project, and sees all his friends uploaded– 100s of encrypted genomes! 
-$ securegenomics project view <project-id>
+$ securegenomics view <project-id>
 
 # Bob now runs the experiment
-$ securegenomics project run <project-id>
+$ securegenomics run <project-id>
 # ☝️ FHE computation, as described in the protocol, is performed on the server.
 
 # After, he downloads and decrypt experiment results with his private key
-$ securegenomics project result <project-id>
+$ securegenomics result <project-id>
 ```
 
 What really happened?
