@@ -63,7 +63,7 @@ For data owners (biobanks, individuals, etc.):
 $ securegenomics upload <project-id> data.vcf
 ```
 
-## 🚀 Same workflow explained by a scenario
+## 🚀 How it works? - explained on a common scenario
 
 ### Bob (scientist) 👨
 On his laptop 💻
