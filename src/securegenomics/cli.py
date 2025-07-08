@@ -850,6 +850,252 @@ def project_delete(
         console.print(f"❌ Error deleting project: {e}", style="red")
         raise typer.Exit(1)
 
+@project_app.command("logs")
+def project_logs(
+    project_id: str = typer.Argument(..., help="Project ID"),
+    job_id: Optional[str] = typer.Option(None, "--job-id", help="Specific job ID (defaults to latest job)"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow log updates (for running jobs)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed information"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """View detailed logs for project jobs with elegant formatting."""
+    try:
+        project_manager = ProjectManager()
+        
+        if job_id:
+            # Get logs for specific job
+            logs_data = project_manager.get_job_logs(job_id)
+        else:
+            # Get logs for latest job of project
+            logs_data = project_manager.get_project_job_logs(project_id)
+        
+        if json_output:
+            import json
+            console.print(json.dumps(logs_data, indent=2, default=str))
+            return
+        
+        # Elegant log display
+        job = logs_data['job']
+        project = logs_data['project']
+        logs = logs_data['logs']
+        
+        # Header with job context
+        console.print(f"\n[bold cyan]📋 Job Logs[/bold cyan]")
+        console.print(f"   Job ID: [dim]{job['id']}[/dim]")
+        console.print(f"   Project: [bold]{project['protocol_name']}[/bold] ([dim]{project['id']}[/dim])")
+        console.print(f"   Owner: {project['owner']}")
+        
+        # Status with color coding
+        status_colors = {
+            'pending': 'yellow',
+            'running': 'blue', 
+            'completed': 'green',
+            'failed': 'red'
+        }
+        status_color = status_colors.get(job['status'], 'white')
+        console.print(f"   Status: [{status_color}]{job['status'].title()}[/{status_color}]")
+        
+        # Timing information
+        if job['started_at']:
+            from datetime import datetime
+            started = datetime.fromisoformat(job['started_at'].replace('Z', '+00:00'))
+            console.print(f"   Started: {started.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+            
+            if job['finished_at']:
+                finished = datetime.fromisoformat(job['finished_at'].replace('Z', '+00:00'))
+                console.print(f"   Finished: {finished.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                
+                if job['duration_seconds']:
+                    duration = job['duration_seconds']
+                    if duration >= 3600:
+                        duration_str = f"{duration//3600:.0f}h {(duration%3600)//60:.0f}m {duration%60:.0f}s"
+                    elif duration >= 60:
+                        duration_str = f"{duration//60:.0f}m {duration%60:.0f}s"
+                    else:
+                        duration_str = f"{duration:.1f}s"
+                    console.print(f"   Duration: {duration_str}")
+        
+        # Data context
+        if verbose and project['vcf_count'] > 0:
+            console.print(f"   Data: {project['vcf_count']} VCF files, {project['contributor_count']} contributors")
+        
+        # Error message if failed
+        if job['status'] == 'failed' and job['error_message']:
+            console.print(f"   [red]Error: {job['error_message']}[/red]")
+        
+        console.print()
+        
+        # Log events with elegant formatting
+        if logs['total_events'] > 0:
+            console.print(f"[bold]📝 Log Events ({logs['total_events']} total):[/bold]")
+            
+            for event in logs['events']:
+                # Format timestamp  
+                timestamp = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
+                time_str = timestamp.strftime('%H:%M:%S')
+                
+                # Relative time if available
+                relative_str = ""
+                if event['relative_time_seconds'] is not None:
+                    rel_time = event['relative_time_seconds']
+                    if rel_time >= 60:
+                        relative_str = f" (+{rel_time//60:.0f}m{rel_time%60:02.0f}s)"
+                    else:
+                        relative_str = f" (+{rel_time:.1f}s)"
+                
+                # Step icon
+                step_icons = {
+                    'start': '🚀',
+                    'validate': '✅',
+                    'load': '📥',
+                    'compute': '⚡',
+                    'finalize': '🏁',
+                    'error': '❌',
+                    'stop': '⏹️'
+                }
+                icon = step_icons.get(event['step'], '📌')
+                
+                # Color code by step
+                step_colors = {
+                    'start': 'cyan',
+                    'validate': 'green',
+                    'load': 'blue',
+                    'compute': 'magenta',
+                    'finalize': 'green',
+                    'error': 'red',
+                    'stop': 'yellow'
+                }
+                step_color = step_colors.get(event['step'], 'white')
+                
+                console.print(f"   {icon} [{step_color}]{time_str}{relative_str}[/{step_color}] "
+                             f"[bold]{event['step']}[/bold]: {event['message']}")
+        else:
+            console.print("[dim]No log events recorded yet[/dim]")
+        
+        # Artifacts info if verbose
+        if verbose and logs_data.get('artifacts', {}).get('available_artifacts'):
+            console.print(f"\n[bold]📁 Available Artifacts:[/bold]")
+            for artifact in logs_data['artifacts']['available_artifacts']:
+                size_mb = artifact['size_bytes'] / (1024 * 1024)
+                console.print(f"   • {artifact['name']} ({size_mb:.2f} MB)")
+        
+        # Execution summary for completed jobs
+        if verbose and job['status'] == 'completed' and logs_data.get('execution_summary'):
+            summary = logs_data['execution_summary']
+            console.print(f"\n[bold]⚡ Execution Summary:[/bold]")
+            console.print(f"   • Computation Duration: {summary.get('computation_duration_seconds', 0):.2f}s")
+            console.print(f"   • Throughput: {summary.get('computation_throughput_mbps', 0):.1f} MB/s")
+            console.print(f"   • Input Files: {summary.get('input_files', 0)}")
+            console.print(f"   • Result Size: {summary.get('result_size_bytes', 0):,} bytes")
+        
+        # Follow mode for running jobs
+        if follow and job['status'] in ['pending', 'running']:
+            console.print(f"\n[yellow]Following logs for running job... (Press Ctrl+C to stop)[/yellow]")
+            import time
+            try:
+                while True:
+                    time.sleep(3)  # Poll every 3 seconds
+                    
+                    # Get updated logs
+                    if job_id:
+                        updated_logs = project_manager.get_job_logs(job_id)
+                    else:
+                        updated_logs = project_manager.get_project_job_logs(project_id)
+                    
+                    new_job_status = updated_logs['job']['status']
+                    new_events = updated_logs['logs']['events']
+                    
+                    # Show only new events
+                    if len(new_events) > len(logs['events']):
+                        for event in new_events[len(logs['events']):]:
+                            timestamp = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
+                            time_str = timestamp.strftime('%H:%M:%S')
+                            icon = step_icons.get(event['step'], '📌')
+                            step_color = step_colors.get(event['step'], 'white')
+                            console.print(f"   {icon} [{step_color}]{time_str}[/{step_color}] "
+                                        f"[bold]{event['step']}[/bold]: {event['message']}")
+                        
+                        logs = updated_logs['logs']
+                    
+                    # Stop following if job completed
+                    if new_job_status in ['completed', 'failed']:
+                        console.print(f"\n[bold]Job {new_job_status}![/bold]")
+                        break
+                        
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopped following logs[/yellow]")
+        
+        # Next steps
+        if job['status'] == 'completed':
+            console.print(f"\n[bold]💡 Next steps:[/bold]")
+            console.print(f"   View results: [blue]securegenomics project result {project_id}[/blue]")
+        elif job['status'] == 'failed':
+            console.print(f"\n[bold]💡 Troubleshooting:[/bold]")
+            console.print(f"   • Check error details in logs above")
+            console.print(f"   • Verify input data: [blue]securegenomics project view {project_id}[/blue]")
+            console.print(f"   • Contact support if issue persists")
+        elif job['status'] in ['pending', 'running']:
+            console.print(f"\n[bold]💡 Job in progress:[/bold]")
+            console.print(f"   • Monitor: [blue]securegenomics project logs {project_id} --follow[/blue]")
+            console.print(f"   • Stop job: [blue]securegenomics project stop {project_id}[/blue]")
+        
+    except Exception as e:
+        if json_output:
+            import json
+            console.print(json.dumps({"error": str(e)}, indent=2))
+        else:
+            console.print(f"❌ Error retrieving logs: {e}", style="red")
+        raise typer.Exit(1)
+
+
+@project_app.command("job_logs")
+def project_job_logs(
+    job_id: str = typer.Argument(..., help="Job ID"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed information"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """View logs for a specific job ID."""
+    try:
+        project_manager = ProjectManager()
+        logs_data = project_manager.get_job_logs(job_id)
+        
+        if json_output:
+            import json
+            console.print(json.dumps(logs_data, indent=2, default=str))
+            return
+        
+        # Use the same elegant display logic
+        # This is a simpler interface that calls the main logs command logic
+        job = logs_data['job']
+        project_id = logs_data['project']['id']
+        
+        # Display using the same logic but with job_id specified
+        from typer.testing import CliRunner
+        import sys
+        
+        # Temporarily redirect to avoid circular import issues
+        # Just display directly here with simplified logic
+        console.print(f"\n[bold cyan]📋 Job Logs[/bold cyan]")
+        console.print(f"   Job ID: [dim]{job['id']}[/dim]")
+        console.print(f"   Status: {job['status']}")
+        
+        logs = logs_data['logs']
+        if logs['total_events'] > 0:
+            console.print(f"\n[bold]📝 Log Events ({logs['total_events']} total):[/bold]")
+            for event in logs['events']:
+                timestamp = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
+                time_str = timestamp.strftime('%H:%M:%S')
+                console.print(f"   📌 {time_str} [bold]{event['step']}[/bold]: {event['message']}")
+        
+        console.print(f"\n[dim]💡 Tip: Use 'securegenomics project logs {project_id}' for enhanced formatting[/dim]")
+        
+    except Exception as e:
+        if json_output:
+            import json
+            console.print(json.dumps({"error": str(e)}, indent=2))
+        else:
+            console.print(f"❌ Error retrieving job logs: {e}", style="red")
+        raise typer.Exit(1)
 
 
 # ============================================================================
@@ -959,8 +1205,176 @@ def system_status() -> None:
         console.print(f"Server Connection: {'✅' if status['server_connected'] else '❌'}")
         console.print(f"Cached Protocols: {status['cached_protocols']}")
         
+        # Add server-side infrastructure diagnostics
+        if status['server_connected']:
+            console.print("\n[bold]Server Infrastructure:[/bold]")
+            try:
+                from securegenomics.auth import AuthManager
+                auth_manager = AuthManager()
+                
+                # Check if we're authenticated
+                if auth_manager.is_authenticated():
+                    # Call a diagnostic endpoint (we'll create this)
+                    response = auth_manager._make_api_request("GET", "/api/system/")
+                    if response.status_code == 200:
+                        system_info = response.json()
+                        
+                        # Display Celery status
+                        celery_info = system_info.get('celery', {})
+                        celery_status = "✅" if celery_info.get('broker_reachable', False) else "❌"
+                        console.print(f"Celery Broker: {celery_status}")
+                        
+                        worker_count = celery_info.get('worker_count', 0)
+                        worker_status = "✅" if worker_count > 0 else "❌"
+                        console.print(f"Celery Workers: {worker_status} ({worker_count} active)")
+                        
+                        if celery_info.get('redis_info'):
+                            redis_info = celery_info['redis_info']
+                            console.print(f"Redis Version: {redis_info.get('redis_version', 'unknown')}")
+                            console.print(f"Redis Clients: {redis_info.get('connected_clients', 0)}")
+                        
+                        # Show any infrastructure issues
+                        if not celery_info.get('broker_reachable', False):
+                            console.print("\n[red]⚠️  Infrastructure Issues Detected:[/red]")
+                            console.print("• Redis broker is not reachable")
+                            console.print("• Jobs will hang in 'pending' status")
+                            console.print("• Contact system administrator")
+                        
+                        if worker_count == 0:
+                            console.print("\n[yellow]⚠️  No Celery Workers Running:[/yellow]")
+                            console.print("• Jobs will not be processed")
+                            console.print("• System administrator should start workers")
+                            console.print("• Command: celery -A core worker --loglevel=info")
+                            
+                    else:
+                        console.print("Unable to check server infrastructure status")
+                else:
+                    console.print("Authentication required for infrastructure status")
+            except Exception as e:
+                console.print(f"Infrastructure check failed: {str(e)}")
+        
     except Exception as e:
         console.print(f"❌ Error checking status: {e}", style="red")
+        raise typer.Exit(1)
+
+
+@system_app.command("celery-status")
+def system_celery_status() -> None:
+    """Check Celery infrastructure status and diagnose job execution issues."""
+    try:
+        console.print("\n[bold cyan]🔧 Celery Infrastructure Diagnostics[/bold cyan]")
+        
+        from securegenomics.auth import AuthManager
+        auth_manager = AuthManager()
+        
+        if not auth_manager.is_authenticated():
+            console.print("❌ Authentication required. Please login first.", style="red")
+            console.print("💡 Run: [blue]securegenomics auth login[/blue]")
+            raise typer.Exit(1)
+        
+        # Get server infrastructure info
+        response = auth_manager._make_api_request("GET", "/api/system/")
+        
+        if response.status_code != 200:
+            console.print("❌ Unable to connect to server for diagnostics", style="red")
+            raise typer.Exit(1)
+        
+        system_info = response.json()
+        celery_info = system_info.get('celery', {})
+        
+        # Redis Broker Status
+        console.print("\n[bold]📡 Redis Broker:[/bold]")
+        if celery_info.get('broker_reachable', False):
+            console.print("   Status: ✅ Connected")
+            redis_info = celery_info.get('redis_info', {})
+            console.print(f"   Version: {redis_info.get('redis_version', 'unknown')}")
+            console.print(f"   Connected Clients: {redis_info.get('connected_clients', 0)}")
+            console.print(f"   Memory Usage: {redis_info.get('used_memory_human', 'unknown')}")
+        else:
+            console.print("   Status: ❌ Not reachable")
+            if 'redis_error' in celery_info:
+                console.print(f"   Error: {celery_info['redis_error']}")
+        
+        # Worker Status
+        console.print("\n[bold]👷 Celery Workers:[/bold]")
+        worker_count = celery_info.get('worker_count', 0)
+        if worker_count > 0:
+            console.print(f"   Status: ✅ {worker_count} worker(s) active")
+            if 'workers' in celery_info:
+                for worker in celery_info['workers']:
+                    console.print(f"   • {worker}")
+        else:
+            console.print("   Status: ❌ No workers detected")
+        
+        # Configuration
+        console.print("\n[bold]⚙️  Celery Configuration:[/bold]")
+        celery_config = celery_info.get('celery_config', {})
+        console.print(f"   Broker URL: {celery_config.get('broker_url', 'unknown')}")
+        console.print(f"   Result Backend: {celery_config.get('result_backend', 'unknown')}")
+        console.print(f"   Task Serializer: {celery_config.get('task_serializer', 'unknown')}")
+        
+        # Overall Status Assessment
+        console.print("\n[bold]📊 Overall Assessment:[/bold]")
+        
+        broker_ok = celery_info.get('broker_reachable', False)
+        workers_ok = worker_count > 0
+        
+        if broker_ok and workers_ok:
+            console.print("   Status: ✅ [green]Healthy - Jobs should execute normally[/green]")
+        elif not broker_ok and not workers_ok:
+            console.print("   Status: ❌ [red]Critical - Both Redis and workers are down[/red]")
+            console.print("\n[bold]🚨 Critical Issues:[/bold]")
+            console.print("   • Redis broker is not reachable")
+            console.print("   • No Celery workers are running")
+            console.print("   • Jobs will hang in 'pending' status indefinitely")
+        elif not broker_ok:
+            console.print("   Status: ❌ [red]Critical - Redis broker is down[/red]")
+            console.print("\n[bold]🚨 Critical Issues:[/bold]")
+            console.print("   • Redis broker is not reachable")
+            console.print("   • Jobs cannot be scheduled or processed")
+        elif not workers_ok:
+            console.print("   Status: ⚠️  [yellow]Warning - No workers available[/yellow]")
+            console.print("\n[bold]⚠️  Issues:[/bold]")
+            console.print("   • No Celery workers are running")
+            console.print("   • Jobs will be queued but not processed")
+            console.print("   • Tasks will remain in 'pending' status")
+        
+        # Troubleshooting guidance
+        if not broker_ok or not workers_ok:
+            console.print("\n[bold]🔧 Troubleshooting:[/bold]")
+            
+            if not broker_ok:
+                console.print("   Redis Issues:")
+                console.print("   • Check if Redis is installed and running")
+                console.print("   • Verify Redis connection URL in server settings")
+                console.print("   • Check Redis server logs for errors")
+                console.print("   • Test: redis-cli ping")
+            
+            if not workers_ok:
+                console.print("   Worker Issues:")
+                console.print("   • Start Celery worker: celery -A core worker --loglevel=info")
+                console.print("   • Check worker logs for startup errors")
+                console.print("   • Verify Django settings are correct")
+                console.print("   • Ensure worker has access to the same database")
+        
+        # Recent job status
+        console.print("\n[bold]📋 Recent Job Activity:[/bold]")
+        try:
+            # Check recent job status to see patterns
+            from securegenomics.project import ProjectManager
+            project_manager = ProjectManager()
+            
+            # We could add an endpoint for this, but for now just give guidance
+            console.print("   💡 Check your recent jobs with:")
+            console.print("      [blue]securegenomics project list --detailed[/blue]")
+            console.print("   💡 View logs for stuck jobs with:")
+            console.print("      [blue]securegenomics project logs <project-id>[/blue]")
+            
+        except Exception:
+            pass
+        
+    except Exception as e:
+        console.print(f"❌ Error checking Celery status: {e}", style="red")
         raise typer.Exit(1)
 
 

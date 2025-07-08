@@ -366,6 +366,35 @@ class ProjectManager:
                 
         except Exception as e:
             raise Exception(f"Failed to get job status: {e}")
+        
+    def get_job_logs(self, job_id: str) -> Dict[str, Any]:
+        """Get detailed logs for a specific job."""
+        try:
+            response = self._make_api_request(
+                "GET",
+                f"/api/jobs/{job_id}/logs/"
+            )
+            
+            return self._handle_api_response(response, 200, "Failed to get job logs")
+                
+        except Exception as e:
+            raise Exception(f"Failed to get job logs: {e}")
+    
+    def get_project_job_logs(self, project_id: str) -> Dict[str, Any]:
+        """Get logs for the latest job of a project."""
+        try:
+            # First get project info to find the latest job
+            project_info = self._get_project_info(project_id)
+            
+            if not project_info.get('latest_job_id'):
+                raise Exception(f"No jobs found for project {project_id}")
+            
+            latest_job_id = project_info['latest_job_id']
+            return self.get_job_logs(latest_job_id)
+                
+        except Exception as e:
+            raise Exception(f"Failed to get project job logs: {e}")
+    
     
     def _get_results_dir(self, project_id: str) -> Path:
         """Get or create the results directory for a project."""

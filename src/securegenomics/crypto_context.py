@@ -211,10 +211,12 @@ class CryptoContextManager:
                 # Load crypto context using FHEManager
                 public_context_bytes, _ = self.fhe_manager.load_context(context_dir)
                 
-                progress.update(task, description="Uploading public context to server...")
+                
                 
                 # Convert public context bytes to base64 for JSON serialization
                 public_context_b64 = base64.b64encode(public_context_bytes).decode('utf-8')
+                
+                progress.update(task, description=f"Uploading public context to server, at URL {self.server_url}/api/projects/{project_id}/ ...")
                 
                 # Upload public context to server
                 headers = self.auth_manager._get_auth_headers()

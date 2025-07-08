@@ -462,3 +462,27 @@ class AuthManager:
     def _log_audit_event(self, event_type: str, **kwargs) -> None:
         """Log audit event with consistent structure."""
         self.config_manager.log_audit_event(event_type, kwargs)
+    
+    def _make_api_request(self, method: str, endpoint: str, require_auth: bool = True, **kwargs) -> requests.Response:
+        """Make API request with consistent error handling."""
+        url = f"{self.server_url}{endpoint}"
+        
+        # Add auth headers if required and available
+        if require_auth:
+            headers = self._get_auth_headers()
+            if not headers:
+                raise Exception("Not authenticated. Please login first.")
+            
+            if 'headers' in kwargs:
+                kwargs['headers'].update(headers)
+            else:
+                kwargs['headers'] = headers
+        
+        # Set default timeout if not provided
+        kwargs.setdefault('timeout', 30)
+        
+        try:
+            response = requests.request(method, url, **kwargs)
+            return response
+        except requests.RequestException as e:
+            raise Exception(f"Network error: {e}")
