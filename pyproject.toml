@@ -50,9 +50,12 @@ fhe = [
 securegenomics = "securegenomics.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/securegenomics/secure-genomics-v2"
-Documentation = "https://github.com/securegenomics/secure-genomics-v2/docs"
-Repository = "https://github.com/securegenomics/secure-genomics-v2"
+Homepage = "https://github.com/securegenomics/securegenomics"
+Documentation = "https://github.com/securegenomics/securegenomics/docs"
+Repository = "https://github.com/securegenomics/securegenomics"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
