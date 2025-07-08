@@ -93,6 +93,15 @@ install_package() {
     log_info "Upgrading pip..."
     pip3 install --upgrade pip
     
+    # Install requirements
+    log_info "Installing project dependencies..."
+    if [[ -f "requirements.txt" ]]; then
+        pip3 install -r requirements.txt
+        log_success "Dependencies installed successfully"
+    else
+        log_warning "requirements.txt not found, skipping dependency installation"
+    fi
+    
     # Install the package in development mode
     log_info "Installing package in development mode..."
     pip3 install -e .
