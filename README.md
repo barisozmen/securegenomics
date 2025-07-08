@@ -27,9 +27,10 @@ Built for
 &nbsp;&nbsp;&nbsp;
 
 # Quick Start
+
 Install
 ```bash
-$ pip install git+https://github.com/securegenomics/securegenomics.git
+git clone https://github.com/securegenomics/securegenomics.git && cd securegenomics && bash setup.sh
 ```
 
 ## 🚀 Super Simple Workflow
