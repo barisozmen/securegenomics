@@ -16,7 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
-license = {text = "MIT"}
+license = "MIT"
 dependencies = [
     "click>=8.0.0",
     "requests>=2.28.0",
