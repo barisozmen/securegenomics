@@ -354,3 +354,24 @@ class ConfigManager:
                         continue
         
         return sorted(users)
+
+    def clear_base_cache(self) -> None:
+        """
+        Delete the entire base cache directory (~/.securegenomics/) and recreates it.
+        This will remove all user configurations, auth tokens, protocols, contexts, and project data.
+        """
+        import shutil
+
+        if self.base_config_dir.exists():
+            try:
+                shutil.rmtree(self.base_config_dir)
+                console.print(f"Removed directory: {self.base_config_dir}", style="dim")
+            except OSError as e:
+                # Handle cases where files might be in use or other permission issues
+                console.print(f"Error removing directory {self.base_config_dir}: {e}", style="red")
+                raise Exception(f"Could not clear cache directory: {e}")
+
+        # Recreate the base directory and essential subdirectories
+        self._ensure_directories()
+        # After clearing, there's no authenticated user
+        self.clear_authenticated_user()
