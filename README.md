@@ -160,7 +160,7 @@ This is the truth base for all computations. You can verify and prove others whi
 
 ## 🔐 Hash-Based Provenance: Scientific Truth as a Chain of Commitments
 
-Treat **every computation** as a cryptographically signed step:
+Treat every computation as a cryptographically signed step:
 - Every input dataset has a hash
 - Every version of your code has a hash
 - Each computation step generates a new hash by combining:
@@ -169,6 +169,6 @@ Treat **every computation** as a cryptographically signed step:
     - Config/parameter hash
     - Previous step hash (for lineage)
 
-This results in a **chain of composable, tamper-proof proofs** that describe **exactly** how an output came to be — like Git commits, but across data + code + math.
+This results in a chain of composable, tamper-proof proofs that describe exactly how an output came to be — like Git commits, but across data + code + math.
 
-📌 **Even if you don’t share your input data**, others can **verify** that your output hash is consistent with what it should be, given the hash of your data and your open-source computation protocol. 
+📌 Even if you don’t share your input data, others can verify that your output hash is consistent with what it should be, given the hash of your data and your open-source computation protocol. 
