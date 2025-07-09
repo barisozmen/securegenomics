@@ -61,8 +61,14 @@ $ securegenomics result <project-id>
 For data owners (biobanks, individuals, etc.):
 ```bash
 # 1. Upload data
-$ securegenomics upload <project-id> data.vcf
+$ securegenomics upload <project-id> <data.vcf>
 ```
+<details>
+<summary>download example human genome to try out quickly</summary>
+```bash
+mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/genomics-public-data/simons-genome-diversity-project/vcf/LP6005441-DNA_C01.annotated.nh2.variants.vcf.gz && gunzip ~/data/genome/LP6005441-DNA_C01.annotated.nh2.variants.vcf.gz
+```
+</details>
 
 ## 🚀 How it works? - explained on a common scenario
 
