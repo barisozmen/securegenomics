@@ -11,7 +11,7 @@ git clone https://github.com/securegenomics/securegenomics.git && cd securegenom
 ```
 Then, create an account:
 ```bash
-$ secgen register --email=your-email@gmail.com --password=your-password
+secgen register --email=your-email@gmail.com --password=your-password
 ```
 
 ## Download example human genome (skip this if you'll use your own genome)
@@ -21,7 +21,7 @@ mkdir -p ~/.securegenomics/example-genome && wget -P ~/.securegenomics/example-g
 
 ## Run Alzheimer's Disease Polygenic Risk Score (PRS) analysis
 ```bash
-$ secgen local analyze -p alzheimer-prs -f ~/.securegenomics/example-genome/LP6005441-DNA_C01.annotated.nh2.variants.vcf
+secgen local analyze -p alzheimer-prs -f ~/.securegenomics/example-genome/LP6005441-DNA_C01.annotated.nh2.variants.vcf
 ```
 
 

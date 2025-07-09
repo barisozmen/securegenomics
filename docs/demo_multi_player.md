@@ -13,15 +13,15 @@ git clone https://github.com/securegenomics/securegenomics.git && cd securegenom
 ```
 Then, create an account:
 ```bash
-$ secgen register
+secgen register
 ```
 
 ## Researcher's Computer
 ```bash
-$ secgen create # will give a <project-id>
+secgen create # will give a <project-id>
 ```
 ```bash
-$ secgen keygen <project-id>
+secgen keygen <project-id>
 ```
 
 ## Data Owners' Computers
@@ -70,10 +70,10 @@ secgen upload <project-id> ~/data/genome/LP6005441-DNA_C05.annotated.nh2.variant
 
 ## Researcher's Computer Again
 ```bash
-$ secgen view <project-id>
-$ secgen run <project-id>
-$ secgen status <project-id>
-$ secgen result <project-id>
+secgen view <project-id>
+secgen run <project-id>
+secgen status <project-id>
+secgen result <project-id>
 ```
 
 
