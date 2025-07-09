@@ -1,4 +1,4 @@
-# Demo, Multi-Player Mode (~10 MINUTES)
+# Demo (multi-player mode) (~10 minutes)
 
 This demo shows how to run a secure genomic analysis across N independent computers, where:
 - 1 computer acts as the researcher who will analyze the data

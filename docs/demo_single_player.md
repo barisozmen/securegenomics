@@ -1,4 +1,4 @@
-# Demo, Single Player Mode (~3 MINUTES)
+# Demo (single player mode) (~3 minutes)
 
 This demo shows how to run a genomic analysis wholly in your local computer.
 
