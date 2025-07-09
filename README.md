@@ -40,28 +40,28 @@ For those who want the quickest path to running secure genomic analysis
 For researchers:
 ```bash
 # 1. Login
-$ securegenomics login
+$ secgen login
 
 # 2. Create project (interactive - choose protocol)
-$ securegenomics create
+$ secgen create
 
 # 3. Generate crypto keys
-$ securegenomics keygen <project-id>
+$ secgen keygen <project-id>
 
 # 5. Run analysis
-$ securegenomics run <project-id>
+$ secgen run <project-id>
 
 # 6. Check status
-$ securegenomics status <project-id>
+$ secgen status <project-id>
 
 # 7. Get results
-$ securegenomics result <project-id>
+$ secgen result <project-id>
 ```
 
 For data owners (biobanks, individuals, etc.):
 ```bash
 # 1. Upload data
-$ securegenomics upload <project-id> <data.vcf>
+$ secgen upload <project-id> <data.vcf>
 ```
 <details>
 <summary>download example human genome to try out quickly</summary>
@@ -79,11 +79,11 @@ $ mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com
 On his laptop 💻
 ```bash
 # Bob creates a new project
-$ securegenomics create
+$ secgen create
 # ☝️ this command, asks Bob to choose an open-source, shareable experiment protocol from https://github.com/securegenomics/ . He chooses `protocol-alzheimers-sensitive-allele-frequency`. All protocols involve scripts for encoding, encryption, computation, decoding, and result interpretation
 
 # Bob generates a public-private crypto context pair
-$ securegenomics keygen <project-id> 
+$ secgen keygen <project-id> 
 # ☝️ this command, under the hood, uploads public crypto context to the SecureGenomics server
 ```
 
@@ -96,13 +96,13 @@ On her computer 🖥️
 # 👩 – Cool!
 
 # Alice uploads her genomic data using the complete pipeline
-$ securegenomics upload <project-id> data.vcf
+$ secgen upload <project-id> data.vcf
 # ☝️ under the hood, it encodes, encrypts, and uploads the data in one command
 
 # Or Alice can do it step by step:
-# $ securegenomics encode <project-id> data.vcf
-# $ securegenomics encrypt <project-id> data.vcf.encoded 
-# $ securegenomics data upload <project-id> data.vcf.encrypted
+# $ secgen encode <project-id> data.vcf
+# $ secgen encrypt <project-id> data.vcf.encoded 
+# $ secgen data upload <project-id> data.vcf.encrypted
 
 # ℹ️ All above commands use the online protocol code from shared experiment Github repository.
 ```
@@ -111,7 +111,7 @@ $ securegenomics upload <project-id> data.vcf
 On their local computers 💻
 ```bash
 # Dave, Frank, George, Carol, ... all do the same:
-$ securegenomics upload <project-id> their-data.vcf
+$ secgen upload <project-id> their-data.vcf
 # ☝️ Each person uploads their encrypted genomic data to the same project
 ```
 
@@ -119,14 +119,14 @@ $ securegenomics upload <project-id> their-data.vcf
 On his laptop 💻
 ```bash
 # Checks his project, and sees all his friends uploaded– 100s of encrypted genomes! 
-$ securegenomics view <project-id>
+$ secgen view <project-id>
 
 # Bob now runs the experiment
-$ securegenomics run <project-id>
+$ secgen run <project-id>
 # ☝️ FHE computation, as described in the protocol, is performed on the server.
 
 # After, he downloads and decrypt experiment results with his private key
-$ securegenomics result <project-id>
+$ secgen result <project-id>
 ```
 
 What really happened?

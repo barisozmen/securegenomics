@@ -23,7 +23,7 @@ class LocalAnalyzer:
         self.config_manager = ConfigManager()
         self.protocol_manager = ProtocolManager()
     
-    def analyze(self, protocol_name: str, vcf_path: Path) -> Dict[str, Any]:
+    def analyze(self, protocol_name: str, vcf_path: Path):
         """Run local analysis on VCF file using specified protocol."""
         try:
             console.print(f"Starting local analysis: {protocol_name}")
@@ -42,9 +42,6 @@ class LocalAnalyzer:
                 
                 if not vcf_path.exists():
                     raise Exception(f"VCF file not found: {vcf_path}")
-                
-                if not self._is_valid_vcf(vcf_path):
-                    raise Exception("Invalid VCF file format")
                 
                 progress.update(task, advance=25)
                 
@@ -66,19 +63,22 @@ class LocalAnalyzer:
                 progress.update(task, advance=50, completed=True)
                 
                 # Execute protocol analysis
-                task = progress.add_task("Running protocol analysis...", total=None)
+                task = progress.add_task("Running local compute...", total=None)
                 
                 # Execute the protocol's local analysis function
                 local_compute_result = self.protocol_manager.execute(
                     protocol_name=protocol_name,
                     operation="local_compute",
-                    vcf_file_path=str(vcf_path)
+                    vcf_path=str(vcf_path)
                 )
+                
+                # tell user that local compute is done, and now interpreting
+                console.print("Local compute is done, now interpreting...")
                 
                 local_interpret_result = self.protocol_manager.execute(
                     protocol_name=protocol_name,
-                    operation="local_compute",
-                    vcf_file_path=str(vcf_path)
+                    operation="local_interpret",
+                    prs=local_compute_result,
                 )
                 
                 progress.update(task, completed=True)
@@ -91,11 +91,7 @@ class LocalAnalyzer:
                 "success": True
             })
             
-            # Format result for display
-            formatted_result = self._format_analysis_result(local_interpret_result, protocol_name)
-            
-            console.print("✅ Local analysis completed successfully")
-            return formatted_result
+            print(local_interpret_result)
             
         except Exception as e:
             # Log failed analysis
@@ -113,8 +109,8 @@ class LocalAnalyzer:
         """Get current timestamp."""
         import datetime
         return datetime.datetime.utcnow().isoformat()
-    
-    def list_supported_protocols(self) -> List[str]:
+        
+    def list_local_protocols(self) -> List[str]:
         """List protocols that support local analysis."""
         try:
             protocols = self.protocol_manager.list_protocols()

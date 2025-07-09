@@ -246,7 +246,11 @@ class ProtocolManager:
             "execute_computation_circuit": ("circuit", "compute"),
             "decrypt_result": ("decrypt", "decrypt_result"),
             "interpret_result": ("decrypt", "interpret_result"),
-            "analyze_local": ("local_analysis", "analyze_local")
+            "analyze_local": ("local_analysis", "analyze_local"),
+            "compute_local": ("local_analysis", "compute_local"),
+            
+            "local_compute": ("local_compute", "local_compute"),
+            "local_interpret": ("local_interpret", "local_interpret"),
         }
         
         if operation not in operation_mapping:
@@ -321,73 +325,46 @@ class ProtocolManager:
         """Verify that protocol has required structure according to design spec."""
         errors = []
         
-        # Required files according to design document
-        required_files = [
-            "protocol.yaml",
-            "generate_keys.py",
-            "encode.py", 
-            "encrypt.py",
-            "circuit.py",
-            "decrypt.py",
-            "local_analysis.py"
-        ]
-        
-        missing_files = []
-        for file_name in required_files:
-            if not (protocol_dir / file_name).exists():
-                missing_files.append(file_name)
-        
-        if missing_files:
-            errors.append(f"Missing required files: {', '.join(missing_files)}")
-        
-        # Verify protocol.yaml structure
+        # Always require protocol.yaml
         protocol_yaml = protocol_dir / "protocol.yaml"
-        if protocol_yaml.exists():
-            try:
-                with open(protocol_yaml, 'r') as f:
-                    config = yaml.safe_load(f)
-                
-                required_fields = ["name", "description", "modes"]
-                missing_fields = []
-                for field in required_fields:
-                    if field not in config:
-                        missing_fields.append(field)
-                
-                if missing_fields:
-                    errors.append(f"protocol.yaml missing required fields: {', '.join(missing_fields)}")
-                
-                # Verify modes are valid
-                modes = config.get("modes", [])
-                if modes:
-                    valid_modes = ["local", "aggregated"]
-                    invalid_modes = [mode for mode in modes if mode not in valid_modes]
-                    if invalid_modes:
-                        errors.append(f"protocol.yaml contains invalid modes: {', '.join(invalid_modes)}. Valid modes: {', '.join(valid_modes)}")
-                
-                # Verify required functions exist in Python files
-                function_checks = [
-                    ("generate_keys.py", "generate_keys"),
-                    ("encode.py", "encode_vcf"),
-                    ("encrypt.py", "encrypt_data"),
-                    ("circuit.py", "compute"),
-                    ("decrypt.py", "decrypt_result"),
-                    ("decrypt.py", "interpret_result"),
-                    ("local_analysis.py", "analyze_local")
+        if not protocol_yaml.exists():
+            errors.append("Missing required file: protocol.yaml")
+            return False, errors
+        
+        # Parse protocol.yaml to understand supported modes
+        try:
+            with open(protocol_yaml, 'r') as f:
+                config = yaml.safe_load(f)
+            
+            required_fields = ["name", "description", "modes"]
+            missing_fields = [field for field in required_fields if field not in config]
+            if missing_fields:
+                errors.append(f"protocol.yaml missing required fields: {', '.join(missing_fields)}")
+            
+            modes = config.get("modes", [])
+            valid_modes = ["local", "aggregated"]
+            invalid_modes = [mode for mode in modes if mode not in valid_modes]
+            if invalid_modes:
+                errors.append(f"protocol.yaml contains invalid modes: {', '.join(invalid_modes)}. Valid modes: {', '.join(valid_modes)}")
+            
+            # Check files based on supported modes
+            local_supported = "local" in modes
+            aggregated_supported = "aggregated" in modes
+            
+            if local_supported and not (protocol_dir / "local_compute.py").exists():
+                errors.append("Missing required file for local mode: local_compute.py")
+            
+            if aggregated_supported:
+                aggregated_files = [
+                    "generate_keys.py", "encode.py", "encrypt.py", 
+                    "circuit.py", "decrypt.py", "local_analysis.py"
                 ]
-                
-                for file_name, function_name in function_checks:
-                    file_path = protocol_dir / file_name
-                    if file_path.exists():
-                        try:
-                            with open(file_path, 'r') as f:
-                                content = f.read()
-                                if f"def {function_name}" not in content:
-                                    errors.append(f"{file_name} missing required function: {function_name}")
-                        except Exception as e:
-                            errors.append(f"Could not check {file_name} for function {function_name}: {e}")
-                
-            except Exception as e:
-                errors.append(f"Could not parse protocol.yaml: {e}")
+                missing_aggregated = [f for f in aggregated_files if not (protocol_dir / f).exists()]
+                if missing_aggregated:
+                    errors.append(f"Missing required files for aggregated mode: {', '.join(missing_aggregated)}")
+            
+        except Exception as e:
+            errors.append(f"Could not parse protocol.yaml: {e}")
         
         # Show detailed errors if any
         if errors:
@@ -396,197 +373,7 @@ class ProtocolManager:
                 console.print(f"  • {error}")
         
         return len(errors) == 0, errors
-    
-#     def _execute_in_sandbox(self, protocol_dir: Path, module_name: str, function_name: str, **kwargs: Any) -> Any:
-#         """Execute protocol operation in a sandboxed environment."""
-#         # For security, we'll execute the protocol in a subprocess with restricted access
-        
-#         # Create a temporary script that imports and runs the protocol function
-#         script_content = f"""
-# import sys
-# import os
-# import json
-# import yaml
-# from pathlib import Path
 
-# # Add protocol directory to path
-# sys.path.insert(0, '{protocol_dir}')
-
-# try:
-#     # Load protocol configuration
-#     with open('{protocol_dir}/protocol.yaml', 'r') as f:
-#         protocol_config = yaml.safe_load(f)
-    
-#     # Import the specific module
-#     import {module_name}
-    
-#     # Get the function
-#     if hasattr({module_name}, '{function_name}'):
-#         func = getattr({module_name}, '{function_name}')
-        
-#         # Add protocol_config to kwargs if function expects it
-#         import inspect
-#         func_signature = inspect.signature(func)
-#         if 'protocol_config' in func_signature.parameters:
-#             kwargs = {kwargs}
-#             kwargs['protocol_config'] = protocol_config
-#         else:
-#             kwargs = {kwargs}
-        
-#         result = func(**kwargs)
-#         print(json.dumps(result, default=str))
-#     else:
-#         print(json.dumps({{"error": "Function '{function_name}' not found in module '{module_name}'"}}))
-        
-# except Exception as e:
-#     import traceback
-#     print(json.dumps({{"error": str(e), "traceback": traceback.format_exc()}}))
-# """
-        
-#         # Write script to temporary file
-#         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-#             f.write(script_content)
-#             script_path = f.name
-        
-#         try:
-#             # Execute with restricted environment
-#             env = os.environ.copy()
-#             env["PYTHONPATH"] = str(protocol_dir)
-            
-#             result = subprocess.run([
-#                 "python3", script_path
-#             ], capture_output=True, text=True, timeout=300, env=env)
-            
-#             print(f"result.returncode: {result.returncode}")
-            
-#             if result.returncode != 0:
-#                 raise Exception(f"Protocol execution failed: {result.stderr}")
-            
-#             # Parse result
-#             try:
-#                 output = json.loads(result.stdout.strip())
-#                 if "error" in output:
-#                     error_msg = output["error"]
-#                     if "traceback" in output:
-#                         error_msg += f"\n{output['traceback']}"
-#                     raise Exception(error_msg)
-#                 return output
-#             except json.JSONDecodeError:
-#                 return {"output": result.stdout.strip()}
-            
-#         finally:
-#             # Clean up temporary script
-#             try:
-#                 os.unlink(script_path)
-#             except OSError:
-#                 pass
-    
-#     def get_cached_protocols(self) -> List[str]:
-#         """Get list of cached protocols."""
-#         if not self.protocols_dir.exists():
-#             return []
-        
-#         return [
-#             d.name for d in self.protocols_dir.iterdir()
-#             if d.is_dir() and not d.name.startswith('.')
-#         ]
-    
-#     def list_local_protocols(self) -> List[Dict[str, Any]]:
-#         """List locally cached protocols with detailed information."""
-#         try:
-#             cached_protocols = self.get_cached_protocols()
-            
-#             if not cached_protocols:
-#                 return []
-            
-#             protocol_details = []
-            
-#             with Progress(
-#                 SpinnerColumn(),
-#                 TextColumn("[progress.description]{task.description}"),
-#                 console=console
-#             ) as progress:
-#                 task = progress.add_task("Reading local protocol metadata...", total=len(cached_protocols))
-                
-#                 for protocol_name in cached_protocols:
-#                     try:
-#                         protocol_dir = self.config_manager.get_protocol_cache_dir(protocol_name)
-                        
-#                         # Read protocol.yaml if available
-#                         metadata = {}
-#                         protocol_yaml = protocol_dir / "protocol.yaml"
-#                         if protocol_yaml.exists():
-#                             with open(protocol_yaml, 'r') as f:
-#                                 metadata = yaml.safe_load(f)
-                        
-#                         # Get git commit info if available
-#                         commit_hash = "unknown"
-#                         commit_date = "unknown"
-#                         try:
-#                             result = subprocess.run([
-#                                 "git", "-C", str(protocol_dir), "rev-parse", "HEAD"
-#                             ], capture_output=True, text=True, timeout=5)
-#                             if result.returncode == 0:
-#                                 commit_hash = result.stdout.strip()[:8]
-                            
-#                             result = subprocess.run([
-#                                 "git", "-C", str(protocol_dir), "show", "-s", "--format=%ci", "HEAD"
-#                             ], capture_output=True, text=True, timeout=5)
-#                             if result.returncode == 0:
-#                                 commit_date = result.stdout.strip()
-#                         except:
-#                             pass  # Git info is optional
-                        
-#                         # Check if protocol is structurally valid
-#                         is_valid, validation_errors = self._verify_protocol_structure(protocol_dir)
-                        
-#                         protocol_details.append({
-#                             "name": protocol_name,
-#                             "description": metadata.get("description", "No description available"),
-#                             "version": metadata.get("version", "unknown"),
-#                             "analysis_type": metadata.get("analysis_type", "unknown"),
-#                             "modes": metadata.get("modes", ["local", "aggregated"]),
-#                             "local_supported": "local" in metadata.get("modes", ["local", "aggregated"]),
-#                             "aggregated_supported": "aggregated" in metadata.get("modes", ["local", "aggregated"]),
-#                             "commit_hash": commit_hash,
-#                             "commit_date": commit_date,
-#                             "is_valid": is_valid,
-#                             "validation_errors": validation_errors if not is_valid else [],
-#                             "cache_path": str(protocol_dir)
-#                         })
-                        
-#                     except Exception as e:
-#                         # Include even broken protocols in the list
-#                         protocol_details.append({
-#                             "name": protocol_name,
-#                             "description": f"Error reading protocol: {e}",
-#                             "version": "unknown",
-#                             "analysis_type": "unknown",
-#                             "modes": [],
-#                             "local_supported": False,
-#                             "aggregated_supported": False,
-#                             "commit_hash": "unknown",
-#                             "commit_date": "unknown",
-#                             "is_valid": False,
-#                             "validation_errors": [str(e)],
-#                             "cache_path": str(protocol_dir)
-#                         })
-                    
-#                     progress.update(task, advance=1)
-                
-#                 progress.update(task, completed=True)
-            
-#             # Log audit event
-#             self.config_manager.log_audit_event("protocol_list_local", {
-#                 "count": len(protocol_details),
-#                 "protocols": [p["name"] for p in protocol_details]
-#             })
-            
-#             return protocol_details
-            
-#         except Exception as e:
-#             raise Exception(f"Failed to list local protocols: {e}")
-    
     def remove_local_protocol(self, protocol_name: str) -> bool:
         """Remove a locally cached protocol."""
         try:
