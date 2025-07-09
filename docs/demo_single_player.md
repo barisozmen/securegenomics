@@ -19,6 +19,8 @@ mkdir -p ~/.securegenomics/example-genome && wget -P ~/.securegenomics/example-g
 secgen local analyze -p alzheimer-prs -f ~/.securegenomics/example-genome/LP6005441-DNA_C05.annotated.nh2.variants.vcf
 ```
 
+![](assets/demo_single_player.svg)
+
 
 #### If used example genome, you can remove it
 ```bash
