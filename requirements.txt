@@ -29,3 +29,6 @@ asyncio-throttle>=1.0.0
 
 # System utilities
 psutil>=5.9.0 
+
+# ASCII art
+pyfiglet==1.0.3

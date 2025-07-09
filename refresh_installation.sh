@@ -1,0 +1,1 @@
+yes | pip3 uninstall securegenomics && pip3 install -e .

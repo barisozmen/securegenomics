@@ -69,9 +69,15 @@ class LocalAnalyzer:
                 task = progress.add_task("Running protocol analysis...", total=None)
                 
                 # Execute the protocol's local analysis function
-                result = self.protocol_manager.execute(
+                local_compute_result = self.protocol_manager.execute(
                     protocol_name=protocol_name,
-                    operation="analyze_local",
+                    operation="local_compute",
+                    vcf_file_path=str(vcf_path)
+                )
+                
+                local_interpret_result = self.protocol_manager.execute(
+                    protocol_name=protocol_name,
+                    operation="local_compute",
                     vcf_file_path=str(vcf_path)
                 )
                 
@@ -86,7 +92,7 @@ class LocalAnalyzer:
             })
             
             # Format result for display
-            formatted_result = self._format_analysis_result(result, protocol_name)
+            formatted_result = self._format_analysis_result(local_interpret_result, protocol_name)
             
             console.print("✅ Local analysis completed successfully")
             return formatted_result

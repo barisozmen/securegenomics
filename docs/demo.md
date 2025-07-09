@@ -25,11 +25,15 @@ Computer 1:
 ```bash
 mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/genomics-public-data/simons-genome-diversity-project/vcf/LP6005441-DNA_C01.annotated.nh2.variants.vcf.gz && gunzip ~/data/genome/LP6005441-DNA_C01.annotated.nh2.variants.vcf.gz
 
+securegenomics register --email=dataowner1@gmail.com --password=dataowner1@gmail.com
+
 securegenomics upload <project-id> ~/data/genome/LP6005441-DNA_C01.annotated.nh2.variants.vcf
 ```
 Computer 2:
 ```bash
 mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/genomics-public-data/simons-genome-diversity-project/vcf/LP6005441-DNA_C02.annotated.nh2.variants.vcf.gz && gunzip ~/data/genome/LP6005441-DNA_C02.annotated.nh2.variants.vcf.gz
+
+securegenomics register --email=dataowner2@gmail.com --password=dataowner2@gmail.com
 
 securegenomics upload <project-id> ~/data/genome/LP6005441-DNA_C02.annotated.nh2.variants.vcf
 ```
@@ -37,11 +41,15 @@ Computer 3:
 ```bash
 mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/genomics-public-data/simons-genome-diversity-project/vcf/LP6005441-DNA_C03.annotated.nh2.variants.vcf.gz && gunzip ~/data/genome/LP6005441-DNA_C03.annotated.nh2.variants.vcf.gz
 
+securegenomics register --email=dataowner3@gmail.com --password=dataowner3@gmail.com
+
 securegenomics upload <project-id> ~/data/genome/LP6005441-DNA_C03.annotated.nh2.variants.vcf
 ```
 Computer 4:
 ```bash
 mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/genomics-public-data/simons-genome-diversity-project/vcf/LP6005441-DNA_C05.annotated.nh2.variants.vcf.gz && gunzip ~/data/genome/LP6005441-DNA_C05.annotated.nh2.variants.vcf.gz
+
+securegenomics register --email=dataowner4@gmail.com --password=dataowner4@gmail.com
 
 securegenomics upload <project-id> ~/data/genome/LP6005441-DNA_C05.annotated.nh2.variants.vcf
 ```

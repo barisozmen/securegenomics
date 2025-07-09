@@ -13,6 +13,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.traceback import install
+import pyfiglet
 
 from securegenomics import __version__
 from securegenomics.auth import AuthManager
@@ -88,6 +89,16 @@ def main(
         os.environ["SECUREGENOMICS_QUIET"] = "1"
     if verbose:
         os.environ["SECUREGENOMICS_VERBOSE"] = "1"
+
+
+def big_announcement(text) -> None:
+    print('\n' + '='*60)
+    if isinstance(text, str):
+        print(pyfiglet.figlet_format(text, font='slant'))
+    else:
+        for line in text:
+            print(pyfiglet.figlet_format(line, font='slant'))
+    print('='*60 + '\n')
 
 
 # ============================================================================
@@ -1180,12 +1191,51 @@ def data_encode_encrypt_upload(
 
 @local_app.command("analyze")
 def local_analyze(
-    protocol_name: str = typer.Argument(..., help="Protocol name"),
-    vcf_file: Path = typer.Argument(..., help="VCF file to analyze", exists=True),
+    protocol_name: str = typer.Argument(None, help="Protocol name"),
+    vcf_file: Path = typer.Argument(None, help="VCF file to analyze"),
 ) -> None:
     """Run local analysis on VCF file."""
     try:
         analyzer = LocalAnalyzer()
+
+        # Get protocol name interactively if not provided
+        if protocol_name is None:
+            supported_protocols = analyzer.list_supported_protocols()
+            if not supported_protocols:
+                console.print("❌ No protocols available for local analysis", style="red")
+                raise typer.Exit(1)
+            
+            console.print("\nAvailable protocols:")
+            for i, protocol in enumerate(supported_protocols, 1):
+                info = analyzer.get_protocol_info(protocol)
+                desc = info.get('description', 'No description') if info else 'No description'
+                console.print(f"{i}. {protocol} - {desc}")
+            
+            while True:
+                choice = console.input("\nSelect protocol (enter number or name): ")
+                try:
+                    # Try as index first
+                    if choice.isdigit() and 1 <= int(choice) <= len(supported_protocols):
+                        protocol_name = supported_protocols[int(choice)-1]
+                        break
+                    # Try as protocol name
+                    elif choice in supported_protocols:
+                        protocol_name = choice
+                        break
+                    else:
+                        console.print("Invalid selection, please try again", style="red")
+                except (ValueError, IndexError):
+                    console.print("Invalid selection, please try again", style="red")
+
+        # Get VCF file interactively if not provided
+        if vcf_file is None:
+            while True:
+                path = console.input("\nEnter path to VCF file: ")
+                vcf_file = Path(path)
+                if vcf_file.exists() and vcf_file.is_file():
+                    break
+                console.print("File not found, please try again", style="red")
+
         results = analyzer.analyze(protocol_name, vcf_file)
         console.print(f"✅ Analysis completed for {vcf_file.name}", style="green")
         console.print("\nResults:")
@@ -1877,6 +1927,7 @@ def create_alias(
 ) -> None:
     """Create new project (alias for 'project create')."""
     project_create(protocol_name, description, interactive, json_output)
+    big_announcement("Project Created")
 
 
 @app.command("list")
@@ -1952,6 +2003,7 @@ def upload_alias(
 ) -> None:
     """Complete VCF upload pipeline (alias for 'data encode_encrypt_upload')."""
     data_encode_encrypt_upload(project_id, vcf_file, output_dir)
+    big_announcement(["Genome Encrypted", "and Uploaded"])
 
 
 @app.command("encode_encrypt_upload")
