@@ -50,7 +50,7 @@ system_app = typer.Typer(help="System commands")
 app.add_typer(auth_app, name="auth")
 app.add_typer(protocol_app, name="protocol")
 app.add_typer(project_app, name="project")
-app.add_typer(crypto_context_app, name="crypto_context")
+app.add_typer(crypto_context_app, name="crypto-context")
 app.add_typer(data_app, name="data")
 app.add_typer(local_app, name="local")
 app.add_typer(system_app, name="system")
@@ -263,7 +263,7 @@ def auth_quick() -> None:
         raise typer.Exit(1)
 
 
-@auth_app.command("delete_profile")
+@auth_app.command("delete-profile")
 def auth_delete_profile() -> None:
     """Delete user profile and all data."""
     try:
@@ -466,7 +466,7 @@ def protocol_locals() -> None:
         raise typer.Exit(1)
 
 
-@protocol_app.command("remove_local")
+@protocol_app.command("remove-local")
 def protocol_remove_local(
     protocol_name: str = typer.Argument(..., help="Protocol name to remove from local cache"),
 ) -> None:
@@ -574,7 +574,7 @@ def project_create(
             console.print(json.dumps(result))
         else:
             console.print(f"✅ Project {project_id} is ready for data upload!", style="green")
-            console.print(f"💡 Next step: Upload VCF data with 'securegenomics data encode_encrypt_upload {project_id} <vcf-file>'", style="blue")
+            console.print(f"💡 Next step: Upload VCF data with 'securegenomics data encode-encrypt-upload {project_id} <vcf-file>'", style="blue")
                 
     except Exception as e:
         if json_output:
@@ -763,22 +763,22 @@ def project_view(
         # Next steps guidance
         console.print(f"\n[bold]Next Steps:[/bold]")
         if not project_info['has_context']:
-            console.print(f"   💡 Generate crypto context: [blue]securegenomics crypto_context generate {project_id}[/blue]")
+            console.print(f"   💡 Generate crypto context: [blue]securegenomics crypto-context generate {project_id}[/blue]")
         elif project_info['vcf_count'] == 0:
-            console.print(f"   💡 Upload VCF data: [blue]securegenomics data encode_encrypt_upload {project_id} <vcf-file>[/blue]")
+            console.print(f"   💡 Upload VCF data: [blue]securegenomics data encode-encrypt-upload {project_id} <vcf-file>[/blue]")
         elif project_info['job_status'] == 'no_jobs':
             console.print(f"   💡 Start computation: [blue]securegenomics project run {project_id}[/blue]")
         elif project_info['job_status'] == 'completed':
             console.print(f"   💡 View results: [blue]securegenomics project result {project_id}[/blue]")
         elif project_info['job_status'] in ['pending', 'running']:
-            console.print(f"   💡 Check status: [blue]securegenomics project job_status {project_id}[/blue]")
+            console.print(f"   💡 Check status: [blue]securegenomics project job-status {project_id}[/blue]")
         
     except Exception as e:
         console.print(f"❌ Error viewing project: {e}", style="red")
         raise typer.Exit(1)
 
 
-@project_app.command("list_saved_results")
+@project_app.command("list-saved-results")
 def project_list_saved_results(
     project_id: str = typer.Argument(..., help="Project ID"),
 ) -> None:
@@ -1066,7 +1066,7 @@ def project_logs(
         raise typer.Exit(1)
 
 
-@project_app.command("job_logs")
+@project_app.command("job-logs")
 def project_job_logs(
     job_id: str = typer.Argument(..., help="Job ID"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed information"),
@@ -1169,7 +1169,7 @@ def data_upload(
         raise typer.Exit(1)
 
 
-@data_app.command("encode_encrypt_upload")
+@data_app.command("encode-encrypt-upload")
 def data_encode_encrypt_upload(
     project_id: str = typer.Argument(..., help="Project ID"),
     vcf_file: Path = typer.Argument(..., help="VCF file to process", exists=True),
@@ -1485,14 +1485,14 @@ def system_help() -> None:
 [bold]2. Aggregated Analysis (Multi-party):[/bold]
    securegenomics auth login
    securegenomics project create                          # Interactive - choose protocol
-   securegenomics project generate_upload_context <project-id>
-   securegenomics data encode_encrypt_upload <project-id> data.vcf
+   securegenomics project generate-upload-context <project-id>
+   securegenomics data encode-encrypt-upload <project-id> data.vcf
    securegenomics project run <project-id>
    securegenomics project stop <project-id>              # Stop running job if needed
-   securegenomics project job_status <project-id>        # Check job status
+   securegenomics project job-status <project-id>        # Check job status
    securegenomics project result <project-id>
-   securegenomics project clear_protocol_cache <project-id>    # Clear protocol cache
-   securegenomics project refresh_protocol_cache <project-id>  # Refresh protocol cache
+   securegenomics project clear-protocol-cache <project-id>    # Clear protocol cache
+   securegenomics project refresh-protocol-cache <project-id>  # Refresh protocol cache
 
 [bold]Configuration:[/bold]
    ~/.securegenomics/config.json   - CLI settings
@@ -1529,7 +1529,7 @@ def crypto_context_generate(
         if crypto_context_manager.has_local_crypto_context(project_id):
             console.print(f"❌ Local crypto context already exists for project {project_id}.", style="red")
             console.print("Each project can only have one crypto context for security reasons.", style="red")
-            console.print(f"💡 Use 'securegenomics crypto_context upload {project_id}' to upload existing context", style="blue")
+            console.print(f"💡 Use 'securegenomics crypto-context upload {project_id}' to upload existing context", style="blue")
             console.print("   or delete the local context first if you want to regenerate.", style="blue")
             raise typer.Exit(1)
         
@@ -1538,7 +1538,7 @@ def crypto_context_generate(
         # Generate crypto context (local only, no upload)
         crypto_context_manager.generate_crypto_context(project_id)
         console.print(f"✅ Generated crypto context locally for project {project_id}", style="green")
-        console.print(f"💡 Next step: Upload to server with 'securegenomics crypto_context upload {project_id}'", style="blue")
+        console.print(f"💡 Next step: Upload to server with 'securegenomics crypto-context upload {project_id}'", style="blue")
         
     except typer.Exit:
         # Re-raise typer.Exit to preserve exit codes
@@ -1567,7 +1567,7 @@ def crypto_context_upload(
         # Check if local context exists
         if not crypto_context_manager.has_local_crypto_context(project_id):
             console.print(f"❌ No local crypto context found for project {project_id}.", style="red")
-            console.print(f"💡 Use 'securegenomics crypto_context generate {project_id}' to generate a new context", style="blue")
+            console.print(f"💡 Use 'securegenomics crypto-context generate {project_id}' to generate a new context", style="blue")
             raise typer.Exit(1)
         
         console.print("✅ Validation passed - uploading existing crypto context", style="green")
@@ -1624,7 +1624,7 @@ def crypto_context_download(
         raise typer.Exit(1)
 
 
-@crypto_context_app.command("generate_upload")
+@crypto_context_app.command("generate-upload")
 def crypto_context_generate_upload(
     project_id: str = typer.Argument(..., help="Project ID"),
 ) -> None:
@@ -1653,8 +1653,8 @@ def crypto_context_delete(
         if not local and not server:
             console.print("❌ You must specify either --local or --server", style="red")
             console.print("Usage examples:", style="blue")
-            console.print(f"  securegenomics crypto_context delete --local {project_id}")
-            console.print(f"  securegenomics crypto_context delete --server {project_id}")
+            console.print(f"  securegenomics crypto-context delete --local {project_id}")
+            console.print(f"  securegenomics crypto-context delete --server {project_id}")
             raise typer.Exit(1)
         
         if local and server:
@@ -1765,7 +1765,7 @@ def project_stop(
         raise typer.Exit(1)
 
 
-@project_app.command("job_status")
+@project_app.command("job-status")
 def project_job_status(
     project_id: str = typer.Argument(..., help="Project ID"),
 ) -> None:
@@ -1891,11 +1891,11 @@ def keyupload_alias(
     crypto_context_upload(project_id)
 
 
-@app.command("keygen_upload")
+@app.command("keygen-upload")
 def keygen_upload_alias(
     project_id: str = typer.Argument(..., help="Project ID"),
 ) -> None:
-    """Generate and upload crypto context (alias for 'crypto_context generate_upload')."""
+    """Generate and upload crypto context (alias for 'crypto_context generate-upload')."""
     crypto_context_generate_upload(project_id)
 
 
@@ -1986,11 +1986,11 @@ def delete_alias(
     project_delete(project_id)
 
 
-@app.command("job_status")
+@app.command("job-status")
 def job_status_alias(
     project_id: str = typer.Argument(..., help="Project ID"),
 ) -> None:
-    """Check job status for project (alias for 'project job_status')."""
+    """Check job status for project (alias for 'project job-status')."""
     project_job_status(project_id)
 
 
@@ -2001,18 +2001,18 @@ def upload_alias(
     vcf_file: Path = typer.Argument(..., help="VCF file to process", exists=True),
     output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Output directory for intermediate files (default: project data cache)"),
 ) -> None:
-    """Complete VCF upload pipeline (alias for 'data encode_encrypt_upload')."""
+    """Complete VCF upload pipeline (alias for 'data encode-encrypt-upload')."""
     data_encode_encrypt_upload(project_id, vcf_file, output_dir)
     big_announcement(["Genome Encrypted", "and Uploaded"])
 
 
-@app.command("encode_encrypt_upload")
+@app.command("encode-encrypt-upload")
 def encode_encrypt_upload_alias(
     project_id: str = typer.Argument(..., help="Project ID"),
     vcf_file: Path = typer.Argument(..., help="VCF file to process", exists=True),
     output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o", help="Output directory for intermediate files (default: project data cache)"),
 ) -> None:
-    """Complete VCF processing pipeline (alias for 'data encode_encrypt_upload')."""
+    """Complete VCF processing pipeline (alias for 'data encode-encrypt-upload')."""
     data_encode_encrypt_upload(project_id, vcf_file, output_dir)
 
 

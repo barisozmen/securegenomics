@@ -265,9 +265,9 @@ class TestCLIIntegration:
                 # Run the clear-cache command
                 # We need to simulate how Typer calls the command function.
                 # Directly calling system_clear_cache() from cli.py
-                from securegenomics.cli import system_clear_cache
+                from securegenomics.cli import system_clear_cache as system_clear_cache_func
                 try:
-                    system_clear_cache()
+                    system_clear_cache_func()
                 except SystemExit: # Typer raises SystemExit on successful command completion
                     pass
 
