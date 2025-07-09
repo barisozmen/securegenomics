@@ -1385,6 +1385,37 @@ def system_celery_status() -> None:
         raise typer.Exit(1)
 
 
+@system_app.command("clear-cache")
+def system_clear_cache() -> None:
+    """Delete the entire cache directory at ~/.securegenomics/."""
+    try:
+        from rich.prompt import Confirm
+
+        config_manager = ConfigManager()
+        cache_dir = config_manager.base_config_dir
+
+        console.print(f"\n[bold red]⚠️  WARNING: This will permanently delete the entire cache directory![/bold red]")
+        console.print(f"This includes all data stored in: [yellow]{cache_dir}[/yellow]")
+        console.print("• All user configurations and authentication tokens")
+        console.print("• All downloaded protocols")
+        console.print("• All local crypto contexts (secret keys)")
+        console.print("• All project-specific data and results")
+        console.print("• This action cannot be undone and will log you out from all accounts.\n")
+
+        confirm = Confirm.ask(f"Are you absolutely sure you want to delete the entire cache directory?", default=False)
+        if not confirm:
+            console.print("Cache deletion cancelled.")
+            return
+
+        config_manager.clear_base_cache()
+        console.print(f"✅ Successfully cleared the cache at {cache_dir}", style="green")
+        console.print("💡 You will need to log in again and re-fetch any necessary data.", style="blue")
+
+    except Exception as e:
+        console.print(f"❌ Error clearing cache: {e}", style="red")
+        raise typer.Exit(1)
+
+
 @system_app.command("help")
 def system_help() -> None:
     """Show detailed help information."""

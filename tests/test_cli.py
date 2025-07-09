@@ -240,6 +240,53 @@ class TestCLIIntegration:
                     result = protocol_manager.verify("test-protocol")
                     assert result is True
 
+    def test_system_clear_cache_command(self, tmp_path):
+        """Test the 'system clear-cache' command."""
+        # Use a temporary directory as the home directory for this test
+        with patch('pathlib.Path.home', return_value=tmp_path):
+            # Initialize ConfigManager to set up the .securegenomics directory
+            config_manager = ConfigManager()
+            base_cache_dir = config_manager.base_config_dir
+            assert base_cache_dir.exists()
+
+            # Create some dummy files and directories in the cache
+            user_dir = base_cache_dir / "testuser_123"
+            user_dir.mkdir(parents=True, exist_ok=True)
+            (user_dir / "auth.json").write_text("{}")
+            protocol_dir = base_cache_dir / ".unauthenticated" / "protocols" / "test-protocol"
+            protocol_dir.mkdir(parents=True, exist_ok=True)
+            (protocol_dir / "manifest.json").write_text("{}")
+
+            assert (user_dir / "auth.json").exists()
+            assert (protocol_dir / "manifest.json").exists()
+
+            # Mock typer.confirm to automatically say "yes"
+            with patch('rich.prompt.Confirm.ask', return_value=True):
+                # Run the clear-cache command
+                # We need to simulate how Typer calls the command function.
+                # Directly calling system_clear_cache() from cli.py
+                from securegenomics.cli import system_clear_cache
+                try:
+                    system_clear_cache()
+                except SystemExit: # Typer raises SystemExit on successful command completion
+                    pass
+
+
+            # Verify the base cache directory still exists (it should be recreated)
+            assert base_cache_dir.exists()
+
+            # Verify that the dummy files/dirs are gone
+            assert not (user_dir / "auth.json").exists()
+            assert not user_dir.exists() # The user-specific directory should be gone
+            assert not (protocol_dir / "manifest.json").exists()
+            assert not protocol_dir.exists() # The protocol directory should be gone
+
+            # Verify that essential subdirectories are recreated (e.g., .unauthenticated)
+            assert (base_cache_dir / ".unauthenticated").exists()
+            assert (base_cache_dir / ".unauthenticated" / "protocols").exists()
+            assert (base_cache_dir / ".unauthenticated" / "crypto_context").exists()
+            assert (base_cache_dir / ".unauthenticated" / "projects").exists()
+
 
 if __name__ == "__main__":
     pytest.main([__file__]) 
