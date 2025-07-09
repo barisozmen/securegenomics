@@ -48,6 +48,7 @@ fhe = [
 
 [project.scripts]
 securegenomics = "securegenomics.cli:main"
+secgen = "securegenomics.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/securegenomics/securegenomics"
