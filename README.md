@@ -7,9 +7,7 @@ SecureGenomics Engine is a platform for privacy-preserving genomic analysis usin
 &nbsp;&nbsp;&nbsp;
 
 <p align="center">
-  <img src="https://images.emojiterra.com/google/android-12l/512px/1f9ec.png" alt="Image 2" width="240"/>
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="https://vitalik.eth.limo/images/fhe/HomoEncrypt.png?1" alt="Image 1" width="240"/>
+  <img src="assets/gentry-figure.png" alt="Gentry Figure" width="600"/>
 </p>
 
 &nbsp;&nbsp;&nbsp;
