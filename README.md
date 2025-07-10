@@ -6,9 +6,8 @@ SecureGenomics Engine is a platform for privacy-preserving genomic analysis usin
 
 &nbsp;&nbsp;&nbsp;
 
-<p align="center">
-  <img src="assets/gentry-figure.png" alt="Gentry Figure" width="600"/>
-</p>
+[![Gentry Figure](assets/gentry-figure.png)](https://eurocrypt.iacr.org/2021/slides/gentry.pdf)
+
 
 &nbsp;&nbsp;&nbsp;
 
