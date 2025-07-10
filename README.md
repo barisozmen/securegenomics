@@ -4,7 +4,6 @@
 
 SecureGenomics Engine is a platform for privacy-preserving genomic analysis using [Fully Homomorphic Encryption (FHE)](https://vitalik.eth.limo/general/2020/07/20/homomorphic.html) and federated computing. It lets scientists run population-scale studies, GWAS, allele frequency analysis — all without ever decrypting sensitive data.
 
-&nbsp;&nbsp;&nbsp;
 
 [![Gentry Figure](assets/gentry-figure.png)](https://eurocrypt.iacr.org/2021/slides/gentry.pdf)
 
