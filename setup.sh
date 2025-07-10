@@ -76,7 +76,8 @@ check_pip() {
     log_step "Checking pip installation..."
     
     if ! command -v pip3 &> /dev/null; then
-        log_error "pip3 is not installed. Please install pip3."
+        log_error "pip3 is not installed. Please install pip3. \n$ sudo apt install python3-pip (ubuntu)\n$ brew install python (mac)
+()"
         exit 1
     fi
     
