@@ -17,10 +17,7 @@ secgen register
 
 ## Researcher's Computer
 ```bash
-secgen create # will give a <project-id>
-```
-```bash
-secgen keygen <project-id>
+secgen create # will give a <project-id> and automatically generate a key pair and upload its public part to the server
 ```
 
 ## Data Owners' Computers
@@ -36,7 +33,7 @@ secgen register --email=dataowner1@gmail.com --password=dataowner1@gmail.com
 ```
 3. upload the genome
 ```bash
-secgen upload <project-id> ~/data/genome/LP6005441-DNA_C01.annotated.nh2.variants.vcf
+secgen upload 17cf92b8-0cc3-433f-8690-cc672192e510 ~/data/genome/LP6005441-DNA_C01.annotated.nh2.variants.vcf
 ```
 #### Computer 2
 
@@ -50,7 +47,7 @@ secgen register --email=dataowner2@gmail.com --password=dataowner2@gmail.com
 ```
 3. upload the genome
 ```bash
-secgen upload <project-id> ~/data/genome/LP6005441-DNA_C02.annotated.nh2.variants.vcf
+secgen upload 17cf92b8-0cc3-433f-8690-cc672192e510 ~/data/genome/LP6005441-DNA_C02.annotated.nh2.variants.vcf
 ```
 #### Computer 3
 
@@ -64,7 +61,7 @@ secgen register --email=dataowner3@gmail.com --password=dataowner3@gmail.com
 ```
 3. upload the genome
 ```bash
-secgen upload <project-id> ~/data/genome/LP6005441-DNA_C03.annotated.nh2.variants.vcf
+secgen upload 17cf92b8-0cc3-433f-8690-cc672192e510 ~/data/genome/LP6005441-DNA_C03.annotated.nh2.variants.vcf
 ```
 
 
