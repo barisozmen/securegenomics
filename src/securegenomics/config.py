@@ -42,6 +42,7 @@ class ConfigManager:
             "output_format": "human",  # human, json, quiet
             "auto_verify_protocols": True,
             "max_parallel_uploads": 3,
+            "crypto_context_upload_timeout": 300,  # 5 minutes for large crypto context uploads
         }
     
     def _setup_paths(self) -> None:
@@ -180,6 +181,16 @@ class ConfigManager:
         """Get the GitHub organization for protocols."""
         config = self.get_config()
         return config["github_org"]
+    
+    def get_crypto_context_upload_timeout(self) -> int:
+        """Get the timeout for crypto context uploads."""
+        config = self.get_config()
+        return config.get("crypto_context_upload_timeout", 300)
+    
+    def get_protocol_timeout(self) -> int:
+        """Get the general protocol timeout."""
+        config = self.get_config()
+        return config.get("protocol_timeout", 300)
     
     def get_system_status(self) -> Dict[str, Any]:
         """Get comprehensive system status."""

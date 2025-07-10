@@ -54,7 +54,8 @@ class CryptoContextManager:
             kwargs['headers'] = headers
         
         # Set default timeout if not provided
-        kwargs.setdefault('timeout', 30)
+        default_timeout = self.config_manager.get_protocol_timeout()
+        kwargs.setdefault('timeout', default_timeout)
         
         try:
             response = requests.request(method, url, **kwargs)
@@ -219,12 +220,13 @@ class CryptoContextManager:
                 progress.update(task, description=f"Uploading public context to server, at URL {self.server_url}/api/projects/{project_id}/ ...")
                 
                 # Upload public context to server
+                upload_timeout = self.config_manager.get_crypto_context_upload_timeout()
                 headers = self.auth_manager._get_auth_headers()
                 response = requests.patch(
                     f"{self.server_url}/api/projects/{project_id}/",
                     json={"public_context": public_context_b64},
                     headers=headers,
-                    timeout=60
+                    timeout=upload_timeout
                 )
                 
                 if response.status_code == 409:
@@ -340,11 +342,12 @@ class CryptoContextManager:
             self._ensure_authenticated()
             
             # Make DELETE request to server API
+            default_timeout = self.config_manager.get_protocol_timeout()
             headers = self.auth_manager._get_auth_headers()
             response = requests.delete(
                 f"{self.server_url}/api/projects/{project_id}/crypto_context/",
                 headers=headers,
-                timeout=30
+                timeout=default_timeout
             )
             
             if response.status_code == 204:
