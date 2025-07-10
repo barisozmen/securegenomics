@@ -32,3 +32,5 @@ psutil>=5.9.0
 
 # ASCII art
 pyfiglet==1.0.3
+
+numpy>=1.26.4
