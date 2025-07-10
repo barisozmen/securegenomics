@@ -29,7 +29,7 @@ mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/g
 ```
 2. create an account
 ```bash
-secgen register --email=dataowner1@gmail.com --password=dataowner1@gmail.com
+secgen login --email=dataowner1@gmail.com --password=dataowner1@gmail.com
 ```
 3. upload the genome
 ```bash
@@ -43,7 +43,7 @@ mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/g
 ```
 2. create an account
 ```bash
-secgen register --email=dataowner2@gmail.com --password=dataowner2@gmail.com
+secgen login --email=dataowner2@gmail.com --password=dataowner2@gmail.com
 ```
 3. upload the genome
 ```bash
@@ -57,7 +57,7 @@ mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/g
 ```
 2. create an account
 ```bash
-secgen register --email=dataowner3@gmail.com --password=dataowner3@gmail.com
+secgen login --email=dataowner3@gmail.com --password=dataowner3@gmail.com
 ```
 3. upload the genome
 ```bash
