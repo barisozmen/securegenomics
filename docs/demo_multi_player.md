@@ -29,11 +29,11 @@ mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/g
 ```
 2. create an account
 ```bash
-secgen login --email=dataowner1@gmail.com --password=dataowner1@gmail.com
+secgen register --email=<email> --password=<password>
 ```
 3. upload the genome
 ```bash
-secgen upload 17cf92b8-0cc3-433f-8690-cc672192e510 ~/data/genome/LP6005441-DNA_C01.annotated.nh2.variants.vcf
+secgen upload <project-id> ~/data/genome/LP6005441-DNA_C01.annotated.nh2.variants.vcf
 ```
 #### Computer 2
 
@@ -43,11 +43,11 @@ mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/g
 ```
 2. create an account
 ```bash
-secgen login --email=dataowner2@gmail.com --password=dataowner2@gmail.com
+secgen register --email=<email> --password=<password>
 ```
 3. upload the genome
 ```bash
-secgen upload 17cf92b8-0cc3-433f-8690-cc672192e510 ~/data/genome/LP6005441-DNA_C02.annotated.nh2.variants.vcf
+secgen upload <project-id> ~/data/genome/LP6005441-DNA_C02.annotated.nh2.variants.vcf
 ```
 #### Computer 3
 
@@ -57,11 +57,11 @@ mkdir -p ~/data/genome && wget -P ~/data/genome https://storage.googleapis.com/g
 ```
 2. create an account
 ```bash
-secgen login --email=dataowner3@gmail.com --password=dataowner3@gmail.com
+secgen register --email=<email> --password=<password>
 ```
 3. upload the genome
 ```bash
-secgen upload 17cf92b8-0cc3-433f-8690-cc672192e510 ~/data/genome/LP6005441-DNA_C03.annotated.nh2.variants.vcf
+secgen upload <project-id> ~/data/genome/LP6005441-DNA_C03.annotated.nh2.variants.vcf
 ```
 
 
