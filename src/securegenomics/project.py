@@ -23,6 +23,7 @@ from securegenomics.api import AuthenticatedApiClient
 from securegenomics.auth import AuthManager
 from securegenomics.config import ConfigManager
 from securegenomics.crypto import FHEManager
+from securegenomics.project_result import ProjectResultProcessor
 from securegenomics.protocol import ProtocolManager
 
 console = Console()
@@ -226,12 +227,13 @@ class ProjectManager:
             # Create project on server
             response = self._make_api_request(
                 "POST", 
-                "/api/projects/",
+                "/api/projects",
                 json={"protocol_name": protocol_name}
             )
             
-            project_data = self._handle_api_response(response, 201, "Failed to create project")
-            project_id = project_data["project_id"]
+            body = self._handle_api_response(response, 201, "Failed to create project")
+            # Rails nests the created project under "project".
+            project_id = body["project"]["id"]
             
             # Log audit event
             self._log_audit_event("project_create", 
@@ -241,39 +243,87 @@ class ProjectManager:
             )
             
             return project_id
-                
+
         except Exception as e:
             raise Exception(f"Failed to create project: {e}")
-    
+
+    def add_member(self, project_id: str, email: str) -> Dict[str, Any]:
+        """Grant another Gencrypt user membership in a project.
+
+        Only the project owner may add members. New contributors need
+        membership before they can upload data, download the crypto context, or
+        run the protocol — the owner is the only member auto-enrolled at
+        creation, so the multi-party flow is dead without this.
+
+        POSTs to ``/api/projects/:id/members`` (``{"email": ...}``) and returns
+        the granted member ``{id, email}`` on success (Rails 201).
+        """
+        try:
+            response = self._make_api_request(
+                "POST",
+                f"/api/projects/{project_id}/members",
+                json={"email": email},
+            )
+
+            if response.status_code == 201:
+                body = response.json() if response.content else {}
+                membership = body.get("membership", body)
+                member = membership.get("user", membership)
+
+                self._log_audit_event("project_add_member",
+                    project_id=project_id,
+                    email=email,
+                )
+                return member
+
+            # No Gencrypt account exists for that email.
+            if (response.status_code == 404 and
+                    self.auth_manager._parse_error_code(response) == "user_not_found"):
+                raise Exception(f"No Gencrypt account for that email: {email}")
+
+            # Only the owner may add members.
+            if response.status_code == 403:
+                raise Exception("Only the project owner can add members")
+
+            error_msg = self.auth_manager._parse_error_response(response)
+            raise Exception(error_msg)
+
+        except Exception as e:
+            raise Exception(f"Failed to add member: {e}")
+
     def list_projects(self, detailed: bool = False) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
-        """List your projects."""
+        """List your projects.
+
+        Rails always returns ``{projects: [...], pagination: {page, per_page,
+        count, total_pages}}``. There is no legacy bare-list shape.
+        """
         try:
             params = {}
             if detailed:
                 params['detailed'] = 'true'
-            
+
             response = self._make_api_request(
                 "GET",
-                "/api/projects/",
+                "/api/projects",
                 params=params
             )
-            
+
             data = self._handle_api_response(response, 200, "Failed to list projects")
-            
+
+            projects = data.get("projects", [])
+            pagination = data.get("pagination", {})
+            count = pagination.get("count", len(projects))
+
             if detailed:
-                # Return the full response with count and projects
-                return data
-            else:
-                # Return just the projects list for backward compatibility
-                projects = data
-                
-                # Add status information for each project (only if it's a list)
-                if isinstance(projects, list):
-                    for project in projects:
-                        project["status"] = self._get_project_status(project["id"])
-                
-                return projects
-                
+                # Preserve the shape the detailed view expects: a dict carrying
+                # the projects list and a top-level count.
+                return {"projects": projects, "count": count, "pagination": pagination}
+
+            # Basic listing: annotate each project with a simple status.
+            for project in projects:
+                project["status"] = self._get_project_status(project["id"])
+            return projects
+
         except Exception as e:
             raise Exception(f"Failed to list projects: {e}")
 
@@ -295,53 +345,39 @@ class ProjectManager:
         try:
             response = self._make_api_request(
                 "POST",
-                "/api/run/",
+                "/api/run",
                 json={"project_id": project_id}
             )
             
-            job_data = self._handle_api_response(response, 201, "Failed to start computation")
-            job_id = job_data["job_id"]
-            
+            body = self._handle_api_response(response, 201, "Failed to start computation")
+            # Rails nests the job under "job".
+            job_id = body["job"]["id"]
+
             # Log audit event
-            self._log_audit_event("project_run", 
+            self._log_audit_event("project_run",
                 project_id=project_id,
                 job_id=job_id
             )
-            
+
             return job_id
-                
+
         except Exception as e:
             raise Exception(f"Failed to start computation: {e}")
-    
+
     def stop(self, project_id: str) -> str:
-        """Stop running computation for project."""
-        try:
-            response = self._make_api_request(
-                "POST",
-                "/api/stop/",
-                json={"project_id": project_id}
-            )
-            
-            job_data = self._handle_api_response(response, 200, "Failed to stop computation")
-            job_id = job_data["job_id"]
-            
-            # Log audit event
-            self._log_audit_event("project_stop", 
-                project_id=project_id,
-                job_id=job_id
-            )
-            
-            return job_id
-                
-        except Exception as e:
-            raise Exception(f"Failed to stop computation: {e}")
+        """Stop running computation for project.
+
+        The Gencrypt API does not (yet) expose a run-cancellation endpoint.
+        Degrade gracefully instead of crashing.
+        """
+        raise Exception("Stopping a run isn't supported yet.")
     
     def get_job_status(self, project_id: str) -> Dict[str, Any]:
         """Check job status for project."""
         try:
             response = self._make_api_request(
                 "GET",
-                "/api/status/",
+                "/api/status",
                 params={"project_id": project_id}
             )
             
@@ -355,7 +391,7 @@ class ProjectManager:
         try:
             response = self._make_api_request(
                 "GET",
-                f"/api/jobs/{job_id}/logs/"
+                f"/api/jobs/{job_id}/logs"
             )
             
             return self._handle_api_response(response, 200, "Failed to get job logs")
@@ -464,302 +500,33 @@ class ProjectManager:
 
     def get_result(self, project_id: str) -> Dict[str, Any]:
         """Get results for completed project using protocol's decrypt functions."""
-        try:
-            console.print(f"📡 Fetching results for project: {project_id}")
-            headers = self.auth_manager._get_auth_headers()
-            response = requests.get(
-                f"{self.server_url}/api/result/",
-                params={"project_id": project_id},
-                headers=headers,
-                timeout=30
-            )
-            console.print(f"📡 Server response: {response.status_code}, Content-Type: {response.headers.get('content-type', 'unknown')}")
-            
-            if response.status_code == 200:
-                # Check content type to determine if we have binary or JSON data
-                content_type = response.headers.get('content-type', '').lower()
-                
-                if 'application/octet-stream' in content_type or 'application/binary' in content_type:
-                    # Handle binary encrypted result
-                    encrypted_result_bytes = response.content
-                    
-                    if len(encrypted_result_bytes) == 0:
-                        raise Exception("Received empty encrypted result")
-                    
-                    # Get project info to determine protocol and job info
-                    project_info = self._get_project_info(project_id)
-                    protocol_name = project_info["protocol_name"]
-                    
-                    # Get job status to get job ID for better filename
-                    job_id = None
-                    try:
-                        job_status = self.get_job_status(project_id)
-                        job_id = job_status.get("job_id")
-                    except:
-                        pass  # Continue without job_id if we can't get it
-                    
-                    # Save encrypted result locally FIRST
-                    console.print(f"💾 Saving encrypted result locally...")
-                    result_file_path = self._save_encrypted_result(project_id, encrypted_result_bytes, job_id)
-                    console.print(f"📁 Saved to: {result_file_path}")
-                    console.print(f"📊 Encrypted data size: {len(encrypted_result_bytes):,} bytes")
-                    
-                    # Load crypto context using FHEManager
-                    context_dir = self.config_manager.get_crypto_context_dir(project_id)
-                    if not context_dir.exists():
-                        raise Exception("Local crypto context not found. Cannot decrypt results.")
-                    
-                    # Load crypto context - returns tuple (public_context_bytes, private_context_bytes)
-                    public_context_bytes, private_context_bytes = self.fhe_manager.load_context(context_dir)
-                    
-                    console.print(f"🔓 Decrypting results using protocol: {protocol_name}")
-                    
-                    # Decrypt using protocol's decrypt.py with proper error handling
-                    try:
-                        decrypted_result = self.protocol_manager.execute(
-                            protocol_name=protocol_name,
-                            operation="decrypt_result",
-                            encrypted_result=encrypted_result_bytes,
-                            private_crypto_context=private_context_bytes
-                        )
-                        console.print(f"✅ Decryption completed successfully")
-                        console.print(f"🔍 Decrypted result type: {type(decrypted_result)}")
-                        
-                        # Debug: Show first few characters of result if it's text/string
-                        if isinstance(decrypted_result, str) and len(decrypted_result) > 0:
-                            preview = decrypted_result[:100] + "..." if len(decrypted_result) > 100 else decrypted_result
-                            # Use safe print to avoid Rich markup issues
-                            self._safe_print(f"🔍 Decrypted result preview: {repr(preview)}")
-                        elif isinstance(decrypted_result, (bytes, bytearray)):
-                            console.print(f"🔍 Decrypted result is binary data ({len(decrypted_result)} bytes)")
-                        elif isinstance(decrypted_result, (dict, list)):
-                            console.print(f"🔍 Decrypted result is {type(decrypted_result).__name__} with {len(decrypted_result)} items")
-                        else:
-                            # For any other type, use safe print
-                            self._safe_print(f"🔍 Decrypted result type: {type(decrypted_result)}, value: {repr(decrypted_result)}")
-                        
-                    except Exception as e:
-                        raise Exception(f"Protocol decryption failed: {str(e)}")
-                    
-                    # Save decrypted result alongside encrypted result
-                    try:
-                        console.print(f"💾 Saving decrypted result locally...")
-                        decrypted_file_path = self._save_decrypted_result(project_id, decrypted_result, job_id)
-                        console.print(f"📄 Decrypted result saved to: {decrypted_file_path}")
-                    except Exception as e:
-                        console.print(f"⚠️  Warning: Could not save decrypted result: {str(e)}")
-                        decrypted_file_path = None
-                    
-                    # Interpret results using protocol with proper error handling
-                    try:
-                        console.print(f"📊 Interpreting results...")
-                        interpreted_result = self.protocol_manager.execute(
-                            protocol_name=protocol_name,
-                            operation="interpret_result",
-                            result=decrypted_result
-                        )
-                        console.print(f"✅ Interpretation completed successfully")
-                        console.print(f"🔍 Interpreted result type: {type(interpreted_result)}")
-                        
-                        # Debug: Show interpretation result safely
-                        if isinstance(interpreted_result, dict):
-                            console.print(f"🔍 Interpreted result has {len(interpreted_result)} keys: {list(interpreted_result.keys())[:10]}")
-                        elif isinstance(interpreted_result, list):
-                            console.print(f"🔍 Interpreted result is a list with {len(interpreted_result)} items")
-                        elif isinstance(interpreted_result, str):
-                            preview = interpreted_result[:200] + "..." if len(interpreted_result) > 200 else interpreted_result
-                            self._safe_print(f"🔍 Interpreted result preview: {repr(preview)}")
-                        elif isinstance(interpreted_result, (bytes, bytearray)):
-                            console.print(f"🔍 WARNING: Interpreted result is binary data ({len(interpreted_result)} bytes) - this might cause display issues")
-                        else:
-                            self._safe_print(f"🔍 Interpreted result: {repr(interpreted_result)}")
-                        
-                    except Exception as e:
-                        raise Exception(f"Protocol interpretation failed: {str(e)}")
-                    
-                    # Add metadata about the saved files to the result
-                    if isinstance(interpreted_result, dict):
-                        interpreted_result["_metadata"] = {
-                            "encrypted_result_saved_to": str(result_file_path),
-                            "decrypted_result_saved_to": str(decrypted_file_path),
-                            "encrypted_size_bytes": len(encrypted_result_bytes),
-                            "job_id": job_id,
-                            "project_id": project_id,
-                            "protocol_name": protocol_name
-                        }
-                        
-                    # save interpreted result to a file
-
-                    
-                    # Log audit event
-                    self.config_manager.log_audit_event("project_result", {
-                        "project_id": project_id,
-                        "protocol_name": protocol_name,
-                        "decrypted": True,
-                        "result_size_bytes": len(encrypted_result_bytes),
-                        "encrypted_saved_to": str(result_file_path),
-                        "decrypted_saved_to": str(decrypted_file_path),
-                        "job_id": job_id
-                    })
-                    
-                    
-                    
-                    return interpreted_result
-                    
-                else:
-                    # Handle JSON response (legacy or error format)
-                    try:
-                        result_data = response.json()
-                        
-                        # If result is encrypted in JSON format, decrypt it using protocol
-                        if result_data.get("encrypted"):
-                            # Get project info to determine protocol
-                            project_info = self._get_project_info(project_id)
-                            protocol_name = project_info["protocol_name"]
-                            
-                            # Load crypto context using FHEManager
-                            context_dir = self.config_manager.get_crypto_context_dir(project_id)
-                            if not context_dir.exists():
-                                raise Exception("Local crypto context not found. Cannot decrypt results.")
-                            
-                            # Load crypto context - returns tuple (public_context_bytes, private_context_bytes)
-                            public_context_bytes, private_context_bytes = self.fhe_manager.load_context(context_dir)
-                            
-                            # Prepare encrypted result for protocol decryption
-                            if isinstance(result_data["data"], str):
-                                # Assume hex-encoded data
-                                encrypted_result = bytes.fromhex(result_data["data"])
-                            else:
-                                encrypted_result = result_data["data"]
-                            
-                            # Save the encrypted result (from JSON format)
-                            console.print(f"💾 Saving encrypted result locally...")
-                            result_file_path = self._save_encrypted_result(project_id, encrypted_result)
-                            console.print(f"📁 Saved to: {result_file_path}")
-                            
-                            # Decrypt using protocol's decrypt.py with proper error handling
-                            try:
-                                console.print(f"🔓 Decrypting JSON results using protocol: {protocol_name}")
-                                decrypted_result = self.protocol_manager.execute(
-                                    protocol_name=protocol_name,
-                                    operation="decrypt_result",
-                                    encrypted_results=encrypted_result,
-                                    private_crypto_context=private_context_bytes
-                                )
-                                console.print(f"✅ Decryption completed successfully")
-                                console.print(f"🔍 Decrypted result type: {type(decrypted_result)}")
-                                
-                            except Exception as e:
-                                raise Exception(f"Protocol decryption failed: {str(e)}")
-                            
-                            # Save decrypted result alongside encrypted result
-                            try:
-                                console.print(f"💾 Saving decrypted result locally...")
-                                decrypted_file_path = self._save_decrypted_result(project_id, decrypted_result)
-                                console.print(f"📄 Decrypted result saved to: {decrypted_file_path}")
-                            except Exception as e:
-                                console.print(f"⚠️  Warning: Could not save decrypted result: {str(e)}")
-                                decrypted_file_path = None
-                            
-                            # Interpret results using protocol with proper error handling
-                            try:
-                                console.print(f"📊 Interpreting results...")
-                                interpreted_result = self.protocol_manager.execute(
-                                    protocol_name=protocol_name,
-                                    operation="interpret_result",
-                                    result=decrypted_result
-                                )
-                                console.print(f"✅ Interpretation completed successfully")
-                                console.print(f"🔍 Interpreted result type: {type(interpreted_result)}")
-                                
-                                # Debug: Show interpretation result safely
-                                if isinstance(interpreted_result, dict):
-                                    console.print(f"🔍 Interpreted result has {len(interpreted_result)} keys: {list(interpreted_result.keys())[:10]}")
-                                elif isinstance(interpreted_result, list):
-                                    console.print(f"🔍 Interpreted result is a list with {len(interpreted_result)} items")
-                                elif isinstance(interpreted_result, str):
-                                    preview = interpreted_result[:200] + "..." if len(interpreted_result) > 200 else interpreted_result
-                                    self._safe_print(f"🔍 Interpreted result preview: {repr(preview)}")
-                                elif isinstance(interpreted_result, (bytes, bytearray)):
-                                    console.print(f"🔍 WARNING: Interpreted result is binary data ({len(interpreted_result)} bytes) - this might cause display issues")
-                                else:
-                                    self._safe_print(f"🔍 Interpreted result: {repr(interpreted_result)}")
-                                
-                            except Exception as e:
-                                raise Exception(f"Protocol interpretation failed: {str(e)}")
-                            
-                            # Add metadata about the saved files to the result
-                            if isinstance(interpreted_result, dict):
-                                interpreted_result["_metadata"] = {
-                                    "encrypted_result_saved_to": str(result_file_path),
-                                    "decrypted_result_saved_to": str(decrypted_file_path),
-                                    "encrypted_size_bytes": len(encrypted_result),
-                                    "project_id": project_id,
-                                    "protocol_name": protocol_name
-                                }
-                            
-                            # Save interpreted result alongside encrypted result
-                            console.print(f"💾 Saving interpreted result locally...")
-                            interpreted_file_path = self._save_interpreted_result(project_id, interpreted_result)
-                            console.print(f"📄 Interpreted result saved to: {interpreted_file_path}")
-                            
-                            # Log audit event
-                            self.config_manager.log_audit_event("project_result", {
-                                "project_id": project_id,
-                                "protocol_name": protocol_name,
-                                "decrypted": True,
-                                "saved_to": str(result_file_path),
-                                "decrypted_saved_to": str(decrypted_file_path)
-                            })
-                            
-                            
-                            
-                            return interpreted_result
-                        else:
-                            # Log audit event for unencrypted result
-                            self.config_manager.log_audit_event("project_result", {
-                                "project_id": project_id,
-                                "decrypted": False
-                            })
-                            
-                            return result_data
-                    except json.JSONDecodeError:
-                        raise Exception("Server returned invalid response format (not JSON or binary)")
-            else:
-                # Try to parse error as JSON, fall back to text
-                try:
-                    error_data = response.json()
-                    error_msg = error_data.get("error", error_data.get("detail", "Failed to get results"))
-                except json.JSONDecodeError:
-                    error_msg = response.text or f"HTTP {response.status_code}: Failed to get results"
-                raise Exception(error_msg)
-                
-        except requests.RequestException as e:
-            console.print(f"❌ Network error occurred: {str(e)}")
-            raise Exception(f"Network error: {e}")
-        except Exception as e:
-            # Make sure we never accidentally print binary data in error messages
-            error_msg = str(e)
-            if isinstance(e.args, tuple) and len(e.args) > 0:
-                # Check if any of the exception args contain binary data
-                for arg in e.args:
-                    if isinstance(arg, (bytes, bytearray)):
-                        error_msg = f"Binary data error ({len(arg)} bytes)"
-                        break
-            
-            console.print(f"❌ Error getting results: {error_msg}")
-            raise Exception(f"Failed to get results: {error_msg}")
+        processor = ProjectResultProcessor(
+            server_url=self.server_url,
+            auth_manager=self.auth_manager,
+            config_manager=self.config_manager,
+            fhe_manager=self.fhe_manager,
+            protocol_manager=self.protocol_manager,
+            project_info_loader=self._get_project_info,
+            job_status_loader=self.get_job_status,
+            encrypted_result_saver=self._save_encrypted_result,
+            decrypted_result_saver=self._save_decrypted_result,
+            interpreted_result_saver=self._save_interpreted_result,
+            safe_print=self._safe_print,
+        )
+        return processor.get_result(project_id)
     
     def _get_project_info(self, project_id: str) -> Optional[Dict[str, Any]]:
         """Get project information from server."""
         try:
             response = self._make_api_request(
                 "GET",
-                f"/api/projects/{project_id}/"
+                f"/api/projects/{project_id}"
             )
             
             if response.status_code == 200:
-                return response.json()
+                # GET /api/projects/:id nests the record under "project".
+                body = response.json()
+                return body.get("project", body)
             elif response.status_code == 404:
                 raise Exception(f"Project '{project_id}' not found. Please check the project ID.")
             elif response.status_code == 401:
@@ -772,7 +539,7 @@ class ProjectManager:
                 raise Exception(error_msg)
         except Exception as e:
             raise
-    
+
     def _get_project_status(self, project_id: str) -> str:
         """Get simple project status."""
         try:
@@ -786,7 +553,7 @@ class ProjectManager:
         try:
             response = self._make_api_request(
                 "DELETE",
-                f"/api/projects/{project_id}/"
+                f"/api/projects/{project_id}"
             )
             
             if response.status_code == 204:
@@ -799,8 +566,10 @@ class ProjectManager:
                 self._log_audit_event("project_delete", project_id=project_id)
                 
                 return True
+            elif response.status_code == 403:
+                raise Exception("Only the owner can delete this project")
             elif response.status_code == 404:
-                raise Exception("Project not found or you don't have permission to delete it")
+                raise Exception("Project not found")
             else:
                 # Parse error response using the auth manager's error parser
                 error_msg = self.auth_manager._parse_error_response(response)
