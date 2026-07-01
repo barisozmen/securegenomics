@@ -22,12 +22,40 @@ from securegenomics.data import DataManager
 from securegenomics.crypto_context import CryptoContextManager
 from securegenomics.local import LocalAnalyzer
 from securegenomics.config import ConfigManager
+from securegenomics.cli_presenters import (
+    follow_project_logs,
+    print_json,
+    print_json_error,
+    print_json_success,
+    render_job_logs,
+    render_project_list,
+    render_project_log_next_steps,
+    render_project_logs,
+    render_project_view,
+)
 
 # Install rich traceback handler for better error display
 install(show_locals=True)
 
 # Initialize console for rich output
 console = Console()
+
+
+def _build_manager(manager_cls):
+    """Instantiate a manager, turning an insecure-config error into a clean exit.
+
+    Manager ``__init__``s resolve the server URL via
+    ``ConfigManager.get_server_url``, which calls ``enforce_https`` and raises
+    ``ValueError`` for a non-loopback ``http`` server_url. Catch it at the
+    command boundary so the user sees the reason instead of a raw traceback.
+    Fail closed: abort the command; never fall back to an insecure connection.
+    """
+    try:
+        return manager_cls()
+    except ValueError as e:
+        console.print(f"❌ {e}", style="red")
+        raise typer.Exit(1)
+
 
 # Main CLI app
 app = typer.Typer(
@@ -122,7 +150,7 @@ def auth_login(
     Non-interactive mode: Requires --email and --password options
     """
     try:
-        auth_manager = AuthManager()
+        auth_manager = _build_manager(AuthManager)
         
         # Try environment variables first
         env_email = os.getenv("SECUREGENOMICS_EMAIL")
@@ -173,7 +201,7 @@ def auth_register(
     Non-interactive mode: Requires --email and --password options
     """
     try:
-        auth_manager = AuthManager()
+        auth_manager = _build_manager(AuthManager)
         
         # Try environment variables first
         env_email = os.getenv("SECUREGENOMICS_EMAIL")
@@ -219,7 +247,7 @@ def auth_register(
 def auth_logout() -> None:
     """Logout from SecureGenomics."""
     try:
-        auth_manager = AuthManager()
+        auth_manager = _build_manager(AuthManager)
         auth_manager.logout()
         console.print("✅ Successfully logged out", style="green")
     except Exception as e:
@@ -231,7 +259,7 @@ def auth_logout() -> None:
 def auth_whoami() -> None:
     """Show current user information."""
     try:
-        auth_manager = AuthManager()
+        auth_manager = _build_manager(AuthManager)
         user_info = auth_manager.whoami()
         if user_info:
             console.print(f"Logged in as: {user_info['email']}", style="green")
@@ -246,7 +274,7 @@ def auth_whoami() -> None:
 def auth_quick() -> None:
     """Quick login using stored credentials or interactive prompt."""
     try:
-        auth_manager = AuthManager()
+        auth_manager = _build_manager(AuthManager)
         
         # Check if already authenticated
         if auth_manager.is_authenticated():
@@ -269,38 +297,11 @@ def auth_quick() -> None:
 
 @auth_app.command("delete_profile")
 def auth_delete_profile() -> None:
-    """Delete user profile and all data."""
-    try:
-        from rich.prompt import Confirm
-        
-        console.print("\n[bold red]⚠️  WARNING: This will permanently delete your profile and all data![/bold red]")
-        console.print("This includes:")
-        console.print("• Your account and authentication")
-        console.print("• All projects and uploaded data")
-        console.print("• All computation results")
-        console.print("• This action cannot be undone\n")
-        
-        confirm = Confirm.ask("Are you absolutely sure you want to delete your profile?", default=False)
-        if not confirm:
-            console.print("Profile deletion cancelled")
-            return
-        
-        # Double confirmation
-        confirm2 = Confirm.ask("Type 'YES' to confirm deletion", default=False)
-        if not confirm2:
-            console.print("Profile deletion cancelled")
-            return
-        
-        auth_manager = AuthManager()
-        success = auth_manager.delete_profile()
-        if success:
-            console.print("✅ Profile deleted successfully", style="green")
-        else:
-            console.print("❌ Failed to delete profile", style="red")
-            raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"❌ Error: {e}", style="red")
-        raise typer.Exit(1)
+    """Account deletion (not available from the CLI yet)."""
+    # The Gencrypt API exposes no account-deletion endpoint. Degrade gracefully
+    # (delete_profile prints the guidance and returns False) rather than running
+    # a destructive confirmation flow that can't complete.
+    _build_manager(AuthManager).delete_profile()
 
 
 # ============================================================================
@@ -313,11 +314,10 @@ def protocol_list(
 ) -> None:
     """List available protocols from GitHub."""
     try:
-        protocol_manager = ProtocolManager()
+        protocol_manager = _build_manager(ProtocolManager)
         protocols = protocol_manager.list_protocols()
         
         if json_output:
-            import json
             # Convert protocols to dict format for JSON serialization
             protocols_data = []
             for protocol in protocols:
@@ -332,12 +332,7 @@ def protocol_list(
                     "aggregated_supported": protocol.aggregated_supported
                 })
             
-            result = {
-                "success": True,
-                "protocols": protocols_data,
-                "count": len(protocols_data)
-            }
-            console.print(json.dumps(result))
+            print_json_success(console, protocols=protocols_data, count=len(protocols_data))
         else:
             # Original table output
             if not protocols:
@@ -361,12 +356,7 @@ def protocol_list(
                 
     except Exception as e:
         if json_output:
-            import json
-            result = {
-                "success": False,
-                "error": str(e)
-            }
-            console.print(json.dumps(result))
+            print_json_error(console, e)
         else:
             console.print(f"❌ Error listing protocols: {e}", style="red")
         raise typer.Exit(1)
@@ -378,7 +368,7 @@ def protocol_fetch(
 ) -> None:
     """Fetch (clone) protocol from GitHub."""
     try:
-        protocol_manager = ProtocolManager()
+        protocol_manager = _build_manager(ProtocolManager)
         protocol = protocol_manager.fetch(protocol_name)
         console.print(f"✅ Successfully fetched protocol: {protocol.name}", style="green")
     except Exception as e:
@@ -392,7 +382,7 @@ def protocol_verify(
 ) -> None:
     """Verify protocol integrity."""
     try:
-        protocol_manager = ProtocolManager()
+        protocol_manager = _build_manager(ProtocolManager)
         is_valid = protocol_manager.verify(protocol_name)
         if is_valid:
             console.print(f"✅ Protocol {protocol_name} is valid", style="green")
@@ -408,7 +398,7 @@ def protocol_verify(
 def protocol_locals() -> None:
     """List locally cached protocols with detailed information."""
     try:
-        protocol_manager = ProtocolManager()
+        protocol_manager = _build_manager(ProtocolManager)
         local_protocols = protocol_manager.list_local_protocols()
         
         if not local_protocols:
@@ -478,7 +468,7 @@ def protocol_remove_local(
     try:
         from rich.prompt import Confirm
         
-        protocol_manager = ProtocolManager()
+        protocol_manager = _build_manager(ProtocolManager)
         
         # Show warning and confirmation
         console.print(f"\n[bold yellow]⚠️  WARNING: This will remove the local cache of protocol '{protocol_name}'[/bold yellow]")
@@ -503,7 +493,7 @@ def protocol_refresh(
 ) -> None:
     """Refresh a locally cached protocol (remove and re-download)."""
     try:
-        protocol_manager = ProtocolManager()
+        protocol_manager = _build_manager(ProtocolManager)
         protocol_info = protocol_manager.refresh_protocol(protocol_name)
         
         console.print(f"✅ Protocol {protocol_name} refreshed successfully", style="green")
@@ -535,7 +525,7 @@ def project_create(
     After creating the project, automatically generates and uploads crypto context.
     """
     try:
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         
         if not interactive:
             # Non-interactive mode - requires protocol name
@@ -563,31 +553,24 @@ def project_create(
         if not json_output:
             console.print("🔄 Generating and uploading crypto context...", style="blue")
         
-        crypto_context_manager = CryptoContextManager()
+        crypto_context_manager = _build_manager(CryptoContextManager)
         crypto_context_manager.generate_upload_crypto_context(project_id)
         
         if json_output:
-            import json
-            result = {
-                "success": True,
-                "project_id": project_id,
-                "protocol_name": protocol_name if not interactive else None,
-                "description": description or None,
-                "crypto_context_ready": True
-            }
-            console.print(json.dumps(result))
+            print_json_success(
+                console,
+                project_id=project_id,
+                protocol_name=protocol_name if not interactive else None,
+                description=description or None,
+                crypto_context_ready=True,
+            )
         else:
             console.print(f"✅ Project {project_id} is ready for data upload!", style="green")
             console.print(f"💡 Next step: Upload VCF data with 'securegenomics data encode_encrypt_upload {project_id} <vcf-file>'", style="blue")
                 
     except Exception as e:
         if json_output:
-            import json
-            result = {
-                "success": False,
-                "error": str(e)
-            }
-            console.print(json.dumps(result))
+            print_json_error(console, e)
         else:
             console.print(f"❌ Error creating project: {e}", style="red")
         raise typer.Exit(1)
@@ -599,106 +582,9 @@ def project_list(
 ) -> None:
     """List your projects."""
     try:
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         response = project_manager.list_projects(detailed=detailed)
-        
-        if detailed:
-            # Handle detailed response format - check if we got the expected format
-            if isinstance(response, dict) and 'count' in response:
-                # Got the expected detailed format
-                if response['count'] == 0:
-                    console.print("No projects found", style="yellow")
-                    return
-                
-                projects = response['projects']
-                console.print(f"\n[bold]Your Projects ({response['count']} total):[/bold]")
-                
-                for project in projects:
-                    # Format creation date
-                    from datetime import datetime
-                    created_date = datetime.fromisoformat(project['created_at'].replace('Z', '+00:00'))
-                    created_str = created_date.strftime("%Y-%m-%d %H:%M UTC")
-                    
-                    # Status color coding
-                    status_colors = {
-                        'pending': 'yellow',
-                        'running': 'blue',
-                        'completed': 'green',
-                        'failed': 'red',
-                        'no_jobs': 'dim'
-                    }
-                    status_color = status_colors.get(project['job_status'], 'white')
-                    
-                    # Project header
-                    console.print(f"\n[bold cyan]🧬 {project['protocol_name']}[/bold cyan]")
-                    console.print(f"   ID: [dim]{project['id']}[/dim]")
-                    console.print(f"   Created: {created_str}")
-                    console.print(f"   Status: [{status_color}]{project['job_status'].replace('_', ' ').title()}[/{status_color}]")
-                    
-                    # Crypto context status
-                    context_status = "✅ Ready" if project['has_context'] else "❌ Not generated"
-                    console.print(f"   Crypto Context: {context_status}")
-                    
-                    # Data information
-                    if project['vcf_count'] > 0:
-                        contributor_text = f"{project['contributor_count']} contributor(s)" if project['contributor_count'] > 1 else "1 contributor"
-                        console.print(f"   Data: {project['vcf_count']} VCF file(s) from {contributor_text}")
-                        
-                        if project['contributors']:
-                            console.print(f"   Contributors: {', '.join(project['contributors'])}")
-                    else:
-                        console.print("   Data: [dim]No VCF files uploaded yet[/dim]")
-                    
-                    # Job information
-                    if project['latest_job_id']:
-                        if project['latest_job_finished']:
-                            finished_date = datetime.fromisoformat(project['latest_job_finished'].replace('Z', '+00:00'))
-                            finished_str = finished_date.strftime("%Y-%m-%d %H:%M UTC")
-                            console.print(f"   Latest Job: {project['latest_job_id']} (finished: {finished_str})")
-                        elif project['latest_job_created']:
-                            created_date = datetime.fromisoformat(project['latest_job_created'].replace('Z', '+00:00'))
-                            created_str = created_date.strftime("%Y-%m-%d %H:%M UTC")
-                            console.print(f"   Latest Job: {project['latest_job_id']} (started: {created_str})")
-                    
-                    # Protocol description
-                    if project['protocol_description']:
-                        console.print(f"   Description: [dim]{project['protocol_description'][:100]}{'...' if len(project['protocol_description']) > 100 else ''}[/dim]")
-                
-                # Summary
-                console.print(f"\n[bold]Summary:[/bold]")
-                console.print(f"• Total projects: {response['count']}")
-                ready_projects = sum(1 for p in projects if p['has_context'])
-                console.print(f"• Ready for use: {ready_projects}")
-                active_projects = sum(1 for p in projects if p['job_status'] in ['pending', 'running'])
-                if active_projects > 0:
-                    console.print(f"• Active jobs: {active_projects}")
-            else:
-                # Server returned basic format even though we requested detailed
-                # Fall back to basic display but inform the user
-                console.print("[yellow]⚠️  Detailed information unavailable, showing basic listing[/yellow]")
-                projects = response
-                
-                if not projects:
-                    console.print("No projects found", style="yellow")
-                    return
-                
-                console.print("\n[bold]Your Projects:[/bold]")
-                for project in projects:
-                    # Handle missing status field gracefully
-                    status = project.get('status', 'unknown')
-                    console.print(f"• {project['id']}: {project['protocol_name']} ({status})")
-            
-        else:
-            # Handle basic response format
-            projects = response
-            
-            if not projects:
-                console.print("No projects found", style="yellow")
-                return
-            
-            console.print("\n[bold]Your Projects:[/bold]")
-            for project in projects:
-                console.print(f"• {project['id']}: {project['protocol_name']} ({project['status']})")
+        render_project_list(console, response, detailed=detailed)
     except Exception as e:
         console.print(f"❌ Error listing projects: {e}", style="red")
         raise typer.Exit(1)
@@ -710,72 +596,9 @@ def project_view(
 ) -> None:
     """View detailed information for a specific project."""
     try:
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         project_info = project_manager.view(project_id)
-        
-        console.print(f"\n[bold cyan]🧬 Project Details[/bold cyan]")
-        console.print(f"   ID: [dim]{project_info['id']}[/dim]")
-        console.print(f"   Protocol: [bold]{project_info['protocol_name']}[/bold]")
-        
-        # Format creation date
-        from datetime import datetime
-        created_date = datetime.fromisoformat(project_info['created_at'].replace('Z', '+00:00'))
-        created_str = created_date.strftime("%Y-%m-%d %H:%M UTC")
-        console.print(f"   Created: {created_str}")
-        
-        # Status color coding
-        status_colors = {
-            'pending': 'yellow',
-            'running': 'blue',
-            'completed': 'green',
-            'failed': 'red',
-            'no_jobs': 'dim'
-        }
-        status_color = status_colors.get(project_info['job_status'], 'white')
-        console.print(f"   Status: [{status_color}]{project_info['job_status'].replace('_', ' ').title()}[/{status_color}]")
-        
-        # Crypto context status
-        context_status = "✅ Ready" if project_info['has_context'] else "❌ Not generated"
-        console.print(f"   Crypto Context: {context_status}")
-        
-        # Data information
-        if project_info['vcf_count'] > 0:
-            contributor_text = f"{project_info['contributor_count']} contributor(s)" if project_info['contributor_count'] > 1 else "1 contributor"
-            console.print(f"   Data: {project_info['vcf_count']} VCF file(s) from {contributor_text}")
-            
-            if project_info['contributors']:
-                console.print(f"   Contributors: {', '.join(project_info['contributors'])}")
-        else:
-            console.print("   Data: [dim]No VCF files uploaded yet[/dim]")
-        
-        # Job information
-        if project_info['latest_job_id']:
-            if project_info['latest_job_finished']:
-                finished_date = datetime.fromisoformat(project_info['latest_job_finished'].replace('Z', '+00:00'))
-                finished_str = finished_date.strftime("%Y-%m-%d %H:%M UTC")
-                console.print(f"   Latest Job: {project_info['latest_job_id']} (finished: {finished_str})")
-            elif project_info['latest_job_created']:
-                created_date = datetime.fromisoformat(project_info['latest_job_created'].replace('Z', '+00:00'))
-                created_str = created_date.strftime("%Y-%m-%d %H:%M UTC")
-                console.print(f"   Latest Job: {project_info['latest_job_id']} (started: {created_str})")
-        
-        # Protocol description
-        if project_info['protocol_description']:
-            console.print(f"\n[bold]Description:[/bold]")
-            console.print(f"   {project_info['protocol_description']}")
-        
-        # Next steps guidance
-        console.print(f"\n[bold]Next Steps:[/bold]")
-        if not project_info['has_context']:
-            console.print(f"   💡 Generate crypto context: [blue]securegenomics crypto_context generate {project_id}[/blue]")
-        elif project_info['vcf_count'] == 0:
-            console.print(f"   💡 Upload VCF data: [blue]securegenomics data encode_encrypt_upload {project_id} <vcf-file>[/blue]")
-        elif project_info['job_status'] == 'no_jobs':
-            console.print(f"   💡 Start computation: [blue]securegenomics project run {project_id}[/blue]")
-        elif project_info['job_status'] == 'completed':
-            console.print(f"   💡 View results: [blue]securegenomics project result {project_id}[/blue]")
-        elif project_info['job_status'] in ['pending', 'running']:
-            console.print(f"   💡 Check status: [blue]securegenomics project job_status {project_id}[/blue]")
+        render_project_view(console, project_info, project_id)
         
     except Exception as e:
         console.print(f"❌ Error viewing project: {e}", style="red")
@@ -788,7 +611,7 @@ def project_list_saved_results(
 ) -> None:
     """List all saved encrypted and decrypted results for a project."""
     try:
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         saved_results = project_manager.list_saved_results(project_id)
         
         if not saved_results:
@@ -861,7 +684,7 @@ def project_delete(
             console.print("Project deletion cancelled")
             return
         
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         success = project_manager.delete(project_id)
         if success:
             console.print(f"✅ Project {project_id} deleted successfully", style="green")
@@ -871,6 +694,28 @@ def project_delete(
     except Exception as e:
         console.print(f"❌ Error deleting project: {e}", style="red")
         raise typer.Exit(1)
+
+
+@project_app.command("add-member")
+def project_add_member(
+    project_id: str = typer.Argument(..., help="Project ID to grant access to"),
+    email: str = typer.Argument(..., help="Email of the Gencrypt user to add as a member"),
+) -> None:
+    """Grant another Gencrypt user access to a project.
+
+    Only the project owner can add members. New contributors must be added
+    before they can upload data, download the crypto context, or run the
+    protocol — the owner is the only member enrolled automatically.
+    """
+    try:
+        project_manager = _build_manager(ProjectManager)
+        member = project_manager.add_member(project_id, email)
+        member_email = member.get("email", email) if isinstance(member, dict) else email
+        console.print(f"✅ Added {member_email} to project {project_id}", style="green")
+    except Exception as e:
+        console.print(f"❌ Error adding member: {e}", style="red")
+        raise typer.Exit(1)
+
 
 @project_app.command("logs")
 def project_logs(
@@ -882,7 +727,7 @@ def project_logs(
 ) -> None:
     """View detailed logs for project jobs with elegant formatting."""
     try:
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         
         if job_id:
             # Get logs for specific job
@@ -892,179 +737,25 @@ def project_logs(
             logs_data = project_manager.get_project_job_logs(project_id)
         
         if json_output:
-            import json
-            console.print(json.dumps(logs_data, indent=2, default=str))
+            print_json(console, logs_data, indent=2)
             return
         
-        # Elegant log display
-        job = logs_data['job']
-        project = logs_data['project']
-        logs = logs_data['logs']
-        
-        # Header with job context
-        console.print(f"\n[bold cyan]📋 Job Logs[/bold cyan]")
-        console.print(f"   Job ID: [dim]{job['id']}[/dim]")
-        console.print(f"   Project: [bold]{project['protocol_name']}[/bold] ([dim]{project['id']}[/dim])")
-        console.print(f"   Owner: {project['owner']}")
-        
-        # Status with color coding
-        status_colors = {
-            'pending': 'yellow',
-            'running': 'blue', 
-            'completed': 'green',
-            'failed': 'red'
-        }
-        status_color = status_colors.get(job['status'], 'white')
-        console.print(f"   Status: [{status_color}]{job['status'].title()}[/{status_color}]")
-        
-        # Timing information
-        if job['started_at']:
-            from datetime import datetime
-            started = datetime.fromisoformat(job['started_at'].replace('Z', '+00:00'))
-            console.print(f"   Started: {started.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-            
-            if job['finished_at']:
-                finished = datetime.fromisoformat(job['finished_at'].replace('Z', '+00:00'))
-                console.print(f"   Finished: {finished.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-                
-                if job['duration_seconds']:
-                    duration = job['duration_seconds']
-                    if duration >= 3600:
-                        duration_str = f"{duration//3600:.0f}h {(duration%3600)//60:.0f}m {duration%60:.0f}s"
-                    elif duration >= 60:
-                        duration_str = f"{duration//60:.0f}m {duration%60:.0f}s"
-                    else:
-                        duration_str = f"{duration:.1f}s"
-                    console.print(f"   Duration: {duration_str}")
-        
-        # Data context
-        if verbose and project['vcf_count'] > 0:
-            console.print(f"   Data: {project['vcf_count']} VCF files, {project['contributor_count']} contributors")
-        
-        # Error message if failed
-        if job['status'] == 'failed' and job['error_message']:
-            console.print(f"   [red]Error: {job['error_message']}[/red]")
-        
-        console.print()
-        
-        # Log events with elegant formatting
-        if logs['total_events'] > 0:
-            console.print(f"[bold]📝 Log Events ({logs['total_events']} total):[/bold]")
-            
-            for event in logs['events']:
-                # Format timestamp  
-                timestamp = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
-                time_str = timestamp.strftime('%H:%M:%S')
-                
-                # Relative time if available
-                relative_str = ""
-                if event['relative_time_seconds'] is not None:
-                    rel_time = event['relative_time_seconds']
-                    if rel_time >= 60:
-                        relative_str = f" (+{rel_time//60:.0f}m{rel_time%60:02.0f}s)"
-                    else:
-                        relative_str = f" (+{rel_time:.1f}s)"
-                
-                # Step icon
-                step_icons = {
-                    'start': '🚀',
-                    'validate': '✅',
-                    'load': '📥',
-                    'compute': '⚡',
-                    'finalize': '🏁',
-                    'error': '❌',
-                    'stop': '⏹️'
-                }
-                icon = step_icons.get(event['step'], '📌')
-                
-                # Color code by step
-                step_colors = {
-                    'start': 'cyan',
-                    'validate': 'green',
-                    'load': 'blue',
-                    'compute': 'magenta',
-                    'finalize': 'green',
-                    'error': 'red',
-                    'stop': 'yellow'
-                }
-                step_color = step_colors.get(event['step'], 'white')
-                
-                console.print(f"   {icon} [{step_color}]{time_str}{relative_str}[/{step_color}] "
-                             f"[bold]{event['step']}[/bold]: {event['message']}")
-        else:
-            console.print("[dim]No log events recorded yet[/dim]")
-        
-        # Artifacts info if verbose
-        if verbose and logs_data.get('artifacts', {}).get('available_artifacts'):
-            console.print(f"\n[bold]📁 Available Artifacts:[/bold]")
-            for artifact in logs_data['artifacts']['available_artifacts']:
-                size_mb = artifact['size_bytes'] / (1024 * 1024)
-                console.print(f"   • {artifact['name']} ({size_mb:.2f} MB)")
-        
-        # Execution summary for completed jobs
-        if verbose and job['status'] == 'completed' and logs_data.get('execution_summary'):
-            summary = logs_data['execution_summary']
-            console.print(f"\n[bold]⚡ Execution Summary:[/bold]")
-            console.print(f"   • Computation Duration: {summary.get('computation_duration_seconds', 0):.2f}s")
-            console.print(f"   • Throughput: {summary.get('computation_throughput_mbps', 0):.1f} MB/s")
-            console.print(f"   • Input Files: {summary.get('input_files', 0)}")
-            console.print(f"   • Result Size: {summary.get('result_size_bytes', 0):,} bytes")
-        
+        job, event_count = render_project_logs(console, logs_data, project_id)
+
         # Follow mode for running jobs
         if follow and job['status'] in ['pending', 'running']:
-            console.print(f"\n[yellow]Following logs for running job... (Press Ctrl+C to stop)[/yellow]")
-            import time
-            try:
-                while True:
-                    time.sleep(3)  # Poll every 3 seconds
-                    
-                    # Get updated logs
-                    if job_id:
-                        updated_logs = project_manager.get_job_logs(job_id)
-                    else:
-                        updated_logs = project_manager.get_project_job_logs(project_id)
-                    
-                    new_job_status = updated_logs['job']['status']
-                    new_events = updated_logs['logs']['events']
-                    
-                    # Show only new events
-                    if len(new_events) > len(logs['events']):
-                        for event in new_events[len(logs['events']):]:
-                            timestamp = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
-                            time_str = timestamp.strftime('%H:%M:%S')
-                            icon = step_icons.get(event['step'], '📌')
-                            step_color = step_colors.get(event['step'], 'white')
-                            console.print(f"   {icon} [{step_color}]{time_str}[/{step_color}] "
-                                        f"[bold]{event['step']}[/bold]: {event['message']}")
-                        
-                        logs = updated_logs['logs']
-                    
-                    # Stop following if job completed
-                    if new_job_status in ['completed', 'failed']:
-                        console.print(f"\n[bold]Job {new_job_status}![/bold]")
-                        break
-                        
-            except KeyboardInterrupt:
-                console.print("\n[yellow]Stopped following logs[/yellow]")
-        
-        # Next steps
-        if job['status'] == 'completed':
-            console.print(f"\n[bold]💡 Next steps:[/bold]")
-            console.print(f"   View results: [blue]securegenomics project result {project_id}[/blue]")
-        elif job['status'] == 'failed':
-            console.print(f"\n[bold]💡 Troubleshooting:[/bold]")
-            console.print(f"   • Check error details in logs above")
-            console.print(f"   • Verify input data: [blue]securegenomics project view {project_id}[/blue]")
-            console.print(f"   • Contact support if issue persists")
-        elif job['status'] in ['pending', 'running']:
-            console.print(f"\n[bold]💡 Job in progress:[/bold]")
-            console.print(f"   • Monitor: [blue]securegenomics project logs {project_id} --follow[/blue]")
-            console.print(f"   • Stop job: [blue]securegenomics project stop {project_id}[/blue]")
+            def fetch_logs():
+                if job_id:
+                    return project_manager.get_job_logs(job_id)
+                return project_manager.get_project_job_logs(project_id)
+
+            follow_project_logs(console, fetch_logs=fetch_logs, seen=event_count)
+
+        render_project_log_next_steps(console, project_id, job['status'])
         
     except Exception as e:
         if json_output:
-            import json
-            console.print(json.dumps({"error": str(e)}, indent=2))
+            print_json_error(console, e, include_success=False, indent=2)
         else:
             console.print(f"❌ Error retrieving logs: {e}", style="red")
         raise typer.Exit(1)
@@ -1078,43 +769,18 @@ def project_job_logs(
 ) -> None:
     """View logs for a specific job ID."""
     try:
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         logs_data = project_manager.get_job_logs(job_id)
         
         if json_output:
-            import json
-            console.print(json.dumps(logs_data, indent=2, default=str))
+            print_json(console, logs_data, indent=2)
             return
         
-        # Use the same elegant display logic
-        # This is a simpler interface that calls the main logs command logic
-        job = logs_data['job']
-        project_id = logs_data['project']['id']
-        
-        # Display using the same logic but with job_id specified
-        from typer.testing import CliRunner
-        import sys
-        
-        # Temporarily redirect to avoid circular import issues
-        # Just display directly here with simplified logic
-        console.print(f"\n[bold cyan]📋 Job Logs[/bold cyan]")
-        console.print(f"   Job ID: [dim]{job['id']}[/dim]")
-        console.print(f"   Status: {job['status']}")
-        
-        logs = logs_data['logs']
-        if logs['total_events'] > 0:
-            console.print(f"\n[bold]📝 Log Events ({logs['total_events']} total):[/bold]")
-            for event in logs['events']:
-                timestamp = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
-                time_str = timestamp.strftime('%H:%M:%S')
-                console.print(f"   📌 {time_str} [bold]{event['step']}[/bold]: {event['message']}")
-        
-        console.print(f"\n[dim]💡 Tip: Use 'securegenomics project logs {project_id}' for enhanced formatting[/dim]")
+        render_job_logs(console, logs_data)
         
     except Exception as e:
         if json_output:
-            import json
-            console.print(json.dumps({"error": str(e)}, indent=2))
+            print_json_error(console, e, include_success=False, indent=2)
         else:
             console.print(f"❌ Error retrieving job logs: {e}", style="red")
         raise typer.Exit(1)
@@ -1132,7 +798,7 @@ def data_encode(
 ) -> None:
     """Encode VCF file using project's protocol (step 1 of 3)."""
     try:
-        data_manager = DataManager()
+        data_manager = _build_manager(DataManager)
         encoded_path = data_manager.encode_vcf(project_id, vcf_file, output_dir)
         console.print(f"✅ Encoded {vcf_file.name} for project {project_id}")
         console.print(f"📁 Output: {encoded_path}")
@@ -1149,7 +815,7 @@ def data_encrypt(
 ) -> None:
     """Encrypt encoded data using project's crypto context (step 2 of 3)."""
     try:
-        data_manager = DataManager()
+        data_manager = _build_manager(DataManager)
         encrypted_path, stats = data_manager.encrypt_vcf(project_id, encoded_file, output_dir)
         console.print(f"✅ Encrypted {encoded_file.name} for project {project_id}")
         console.print(f"📁 Output: {encrypted_path}")
@@ -1165,7 +831,7 @@ def data_upload(
 ) -> None:
     """Upload encrypted data file to server (step 3 of 3)."""
     try:
-        data_manager = DataManager()
+        data_manager = _build_manager(DataManager)
         data_manager.upload_data(project_id, encrypted_file)
         console.print(f"✅ Uploaded {encrypted_file.name} to project {project_id}")
     except Exception as e:
@@ -1181,7 +847,7 @@ def data_encode_encrypt_upload(
 ) -> None:
     """Complete VCF processing pipeline: encode, encrypt, and upload (combined operation)."""
     try:
-        data_manager = DataManager()
+        data_manager = _build_manager(DataManager)
         data_manager.encode_encrypt_upload(project_id, vcf_file, output_dir)
         console.print(f"✅ Completed full pipeline for {vcf_file.name} in project {project_id}")
     except Exception as e:
@@ -1200,7 +866,7 @@ def local_analyze(
 ) -> None:
     """Run local analysis on VCF file."""
     try:
-        analyzer = LocalAnalyzer()
+        analyzer = _build_manager(LocalAnalyzer)
 
         # Get protocol name interactively if not provided
         if protocol_name is None:
@@ -1252,65 +918,24 @@ def local_analyze(
 
 @system_app.command("status")
 def system_status() -> None:
-    """Check system status and connectivity."""
+    """Check system status and connectivity.
+
+    Connectivity is derived from the /api/profile probe (200/401 both mean the
+    server is up). Gencrypt runs on Solid Queue, not Celery, and exposes no
+    /api/system endpoint, so there is no worker/broker readout.
+    """
     try:
-        config_manager = ConfigManager()
+        config_manager = _build_manager(ConfigManager)
         status = config_manager.get_system_status()
-        
+
         console.print("\n[bold]System Status:[/bold]")
         console.print(f"CLI Version: {__version__}")
         console.print(f"Config Directory: {status['config_dir']}")
+        console.print(f"Server URL: {status['server_url']}")
         console.print(f"Server Connection: {'✅' if status['server_connected'] else '❌'}")
+        console.print(f"Authenticated: {'✅' if status['authenticated'] else '❌'}")
         console.print(f"Cached Protocols: {status['cached_protocols']}")
-        
-        # Add server-side infrastructure diagnostics
-        if status['server_connected']:
-            console.print("\n[bold]Server Infrastructure:[/bold]")
-            try:
-                from securegenomics.auth import AuthManager
-                auth_manager = AuthManager()
-                
-                # Check if we're authenticated
-                if auth_manager.is_authenticated():
-                    # Call a diagnostic endpoint (we'll create this)
-                    response = auth_manager._make_api_request("GET", "/api/system/")
-                    if response.status_code == 200:
-                        system_info = response.json()
-                        
-                        # Display Celery status
-                        celery_info = system_info.get('celery', {})
-                        celery_status = "✅" if celery_info.get('broker_reachable', False) else "❌"
-                        console.print(f"Celery Broker: {celery_status}")
-                        
-                        worker_count = celery_info.get('worker_count', 0)
-                        worker_status = "✅" if worker_count > 0 else "❌"
-                        console.print(f"Celery Workers: {worker_status} ({worker_count} active)")
-                        
-                        if celery_info.get('redis_info'):
-                            redis_info = celery_info['redis_info']
-                            console.print(f"Redis Version: {redis_info.get('redis_version', 'unknown')}")
-                            console.print(f"Redis Clients: {redis_info.get('connected_clients', 0)}")
-                        
-                        # Show any infrastructure issues
-                        if not celery_info.get('broker_reachable', False):
-                            console.print("\n[red]⚠️  Infrastructure Issues Detected:[/red]")
-                            console.print("• Redis broker is not reachable")
-                            console.print("• Jobs will hang in 'pending' status")
-                            console.print("• Contact system administrator")
-                        
-                        if worker_count == 0:
-                            console.print("\n[yellow]⚠️  No Celery Workers Running:[/yellow]")
-                            console.print("• Jobs will not be processed")
-                            console.print("• System administrator should start workers")
-                            console.print("• Command: celery -A core worker --loglevel=info")
-                            
-                    else:
-                        console.print("Unable to check server infrastructure status")
-                else:
-                    console.print("Authentication required for infrastructure status")
-            except Exception as e:
-                console.print(f"Infrastructure check failed: {str(e)}")
-        
+
     except Exception as e:
         console.print(f"❌ Error checking status: {e}", style="red")
         raise typer.Exit(1)
@@ -1318,122 +943,26 @@ def system_status() -> None:
 
 @system_app.command("celery-status")
 def system_celery_status() -> None:
-    """Check Celery infrastructure status and diagnose job execution issues."""
+    """Deprecated: Gencrypt runs Solid Queue, not Celery.
+
+    Kept as a graceful no-op so existing scripts don't crash. Reports plain
+    server connectivity via the /api/profile probe instead of a Celery/Redis
+    readout that no longer exists.
+    """
+    console.print(
+        "[yellow]Celery diagnostics are not applicable — Gencrypt runs Solid Queue.[/yellow]"
+    )
     try:
-        console.print("\n[bold cyan]🔧 Celery Infrastructure Diagnostics[/bold cyan]")
-        
-        from securegenomics.auth import AuthManager
-        auth_manager = AuthManager()
-        
-        if not auth_manager.is_authenticated():
-            console.print("❌ Authentication required. Please login first.", style="red")
-            console.print("💡 Run: [blue]securegenomics auth login[/blue]")
-            raise typer.Exit(1)
-        
-        # Get server infrastructure info
-        response = auth_manager._make_api_request("GET", "/api/system/")
-        
-        if response.status_code != 200:
-            console.print("❌ Unable to connect to server for diagnostics", style="red")
-            raise typer.Exit(1)
-        
-        system_info = response.json()
-        celery_info = system_info.get('celery', {})
-        
-        # Redis Broker Status
-        console.print("\n[bold]📡 Redis Broker:[/bold]")
-        if celery_info.get('broker_reachable', False):
-            console.print("   Status: ✅ Connected")
-            redis_info = celery_info.get('redis_info', {})
-            console.print(f"   Version: {redis_info.get('redis_version', 'unknown')}")
-            console.print(f"   Connected Clients: {redis_info.get('connected_clients', 0)}")
-            console.print(f"   Memory Usage: {redis_info.get('used_memory_human', 'unknown')}")
-        else:
-            console.print("   Status: ❌ Not reachable")
-            if 'redis_error' in celery_info:
-                console.print(f"   Error: {celery_info['redis_error']}")
-        
-        # Worker Status
-        console.print("\n[bold]👷 Celery Workers:[/bold]")
-        worker_count = celery_info.get('worker_count', 0)
-        if worker_count > 0:
-            console.print(f"   Status: ✅ {worker_count} worker(s) active")
-            if 'workers' in celery_info:
-                for worker in celery_info['workers']:
-                    console.print(f"   • {worker}")
-        else:
-            console.print("   Status: ❌ No workers detected")
-        
-        # Configuration
-        console.print("\n[bold]⚙️  Celery Configuration:[/bold]")
-        celery_config = celery_info.get('celery_config', {})
-        console.print(f"   Broker URL: {celery_config.get('broker_url', 'unknown')}")
-        console.print(f"   Result Backend: {celery_config.get('result_backend', 'unknown')}")
-        console.print(f"   Task Serializer: {celery_config.get('task_serializer', 'unknown')}")
-        
-        # Overall Status Assessment
-        console.print("\n[bold]📊 Overall Assessment:[/bold]")
-        
-        broker_ok = celery_info.get('broker_reachable', False)
-        workers_ok = worker_count > 0
-        
-        if broker_ok and workers_ok:
-            console.print("   Status: ✅ [green]Healthy - Jobs should execute normally[/green]")
-        elif not broker_ok and not workers_ok:
-            console.print("   Status: ❌ [red]Critical - Both Redis and workers are down[/red]")
-            console.print("\n[bold]🚨 Critical Issues:[/bold]")
-            console.print("   • Redis broker is not reachable")
-            console.print("   • No Celery workers are running")
-            console.print("   • Jobs will hang in 'pending' status indefinitely")
-        elif not broker_ok:
-            console.print("   Status: ❌ [red]Critical - Redis broker is down[/red]")
-            console.print("\n[bold]🚨 Critical Issues:[/bold]")
-            console.print("   • Redis broker is not reachable")
-            console.print("   • Jobs cannot be scheduled or processed")
-        elif not workers_ok:
-            console.print("   Status: ⚠️  [yellow]Warning - No workers available[/yellow]")
-            console.print("\n[bold]⚠️  Issues:[/bold]")
-            console.print("   • No Celery workers are running")
-            console.print("   • Jobs will be queued but not processed")
-            console.print("   • Tasks will remain in 'pending' status")
-        
-        # Troubleshooting guidance
-        if not broker_ok or not workers_ok:
-            console.print("\n[bold]🔧 Troubleshooting:[/bold]")
-            
-            if not broker_ok:
-                console.print("   Redis Issues:")
-                console.print("   • Check if Redis is installed and running")
-                console.print("   • Verify Redis connection URL in server settings")
-                console.print("   • Check Redis server logs for errors")
-                console.print("   • Test: redis-cli ping")
-            
-            if not workers_ok:
-                console.print("   Worker Issues:")
-                console.print("   • Start Celery worker: celery -A core worker --loglevel=info")
-                console.print("   • Check worker logs for startup errors")
-                console.print("   • Verify Django settings are correct")
-                console.print("   • Ensure worker has access to the same database")
-        
-        # Recent job status
-        console.print("\n[bold]📋 Recent Job Activity:[/bold]")
-        try:
-            # Check recent job status to see patterns
-            from securegenomics.project import ProjectManager
-            project_manager = ProjectManager()
-            
-            # We could add an endpoint for this, but for now just give guidance
-            console.print("   💡 Check your recent jobs with:")
-            console.print("      [blue]securegenomics project list --detailed[/blue]")
-            console.print("   💡 View logs for stuck jobs with:")
-            console.print("      [blue]securegenomics project logs <project-id>[/blue]")
-            
-        except Exception:
-            pass
-        
+        config_manager = _build_manager(ConfigManager)
+        status = config_manager.get_system_status()
+        console.print(f"Server URL: {status['server_url']}")
+        console.print(f"Server Connection: {'✅' if status['server_connected'] else '❌'}")
+        console.print("\n💡 Inspect jobs with:")
+        console.print("   [blue]securegenomics project list --detailed[/blue]")
+        console.print("   [blue]securegenomics project logs <project-id>[/blue]")
     except Exception as e:
-        console.print(f"❌ Error checking Celery status: {e}", style="red")
-        raise typer.Exit(1)
+        # Never crash — this command is informational only.
+        console.print(f"[dim]Could not read connectivity: {e}[/dim]")
 
 
 @system_app.command("clear-cache")
@@ -1442,7 +971,7 @@ def system_clear_cache() -> None:
     try:
         from rich.prompt import Confirm
 
-        config_manager = ConfigManager()
+        config_manager = _build_manager(ConfigManager)
         cache_dir = config_manager.base_config_dir
 
         console.print(f"\n[bold red]⚠️  WARNING: This will permanently delete the entire cache directory![/bold red]")
@@ -1515,7 +1044,7 @@ def crypto_context_generate(
 ) -> None:
     """Generate FHE crypto context locally for project (does not upload)."""
     try:
-        crypto_context_manager = CryptoContextManager()
+        crypto_context_manager = _build_manager(CryptoContextManager)
         
         # Validate that crypto context generation is allowed
         console.print(f"🔍 Validating project {project_id}...")
@@ -1555,7 +1084,7 @@ def crypto_context_upload(
 ) -> None:
     """Upload existing local crypto context to server."""
     try:
-        crypto_context_manager = CryptoContextManager()
+        crypto_context_manager = _build_manager(CryptoContextManager)
         
         console.print(f"🔍 Validating project {project_id}...")
         
@@ -1611,7 +1140,7 @@ def crypto_context_download(
         
         # Log audit event
         from securegenomics.auth import AuthManager
-        auth_manager = AuthManager()
+        auth_manager = _build_manager(AuthManager)
         # auth_manager._log_audit_event("crypto_context_download", project_id=project_id)
         
         console.print(f"💾 Context saved locally and ready for data encryption")
@@ -1631,7 +1160,7 @@ def crypto_context_generate_upload(
 ) -> None:
     """Generate FHE crypto context for project and upload to server (combined operation)."""
     try:
-        crypto_context_manager = CryptoContextManager()
+        crypto_context_manager = _build_manager(CryptoContextManager)
         crypto_context_manager.generate_upload_crypto_context(project_id)
         
     except typer.Exit:
@@ -1662,7 +1191,7 @@ def crypto_context_delete(
             console.print("❌ Cannot specify both --local and --server. Choose one.", style="red")
             raise typer.Exit(1)
         
-        crypto_context_manager = CryptoContextManager()
+        crypto_context_manager = _build_manager(CryptoContextManager)
         
         if local:
             # Delete local crypto context
@@ -1742,7 +1271,7 @@ def project_run(
 ) -> None:
     """Start computation for project."""
     try:
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         job_id = project_manager.run(project_id)
         console.print(f"✅ Started computation for project {project_id}", style="green")
         console.print(f"Job ID: {job_id}")
@@ -1755,15 +1284,10 @@ def project_run(
 def project_stop(
     project_id: str = typer.Argument(..., help="Project ID"),
 ) -> None:
-    """Stop running computation for project."""
-    try:
-        project_manager = ProjectManager()
-        job_id = project_manager.stop(project_id)
-        console.print(f"✅ Stopped computation for project {project_id}", style="green")
-        console.print(f"Job ID: {job_id}")
-    except Exception as e:
-        console.print(f"❌ Error stopping computation: {e}", style="red")
-        raise typer.Exit(1)
+    """Stop running computation for project (not yet supported by the server)."""
+    # The Gencrypt API has no run-cancellation endpoint yet. Degrade gracefully
+    # instead of crashing.
+    console.print("[yellow]Stopping a run isn't supported yet.[/yellow]")
 
 
 @project_app.command("job_status")
@@ -1772,13 +1296,15 @@ def project_job_status(
 ) -> None:
     """Check job status for project."""
     try:
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         status = project_manager.get_job_status(project_id)
         console.print(f"Project {project_id} status: {status['status']}")
         if status.get('events'):
             console.print("\nJob Events:")
             for event in status['events']:
-                console.print(f"• {event['timestamp']}: {event['step']} - {event['message']}")
+                occurred = event.get('occurred_at') or event.get('timestamp', '')
+                step = event.get('step') or event.get('event_type', '')
+                console.print(f"• {occurred}: {step} - {event.get('message', '')}")
     except Exception as e:
         console.print(f"❌ Error checking status: {e}", style="red")
         raise typer.Exit(1)
@@ -1790,7 +1316,7 @@ def project_result(
 ) -> None:
     """Get results for completed project."""
     try:
-        project_manager = ProjectManager()
+        project_manager = _build_manager(ProjectManager)
         results = project_manager.get_result(project_id)
         console.print(f"✅ Results for project {project_id}:", style="green")
         console.print(results)
