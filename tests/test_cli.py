@@ -1,292 +1,303 @@
 """
-Tests for SecureGenomics CLI.
+Tests for SecureGenomics manager-level CLI support classes.
 
-Basic smoke tests to verify the CLI implementation works correctly.
+These tests keep external boundaries mocked: no live GitHub/server calls and no
+real home-directory cache writes.
 """
 
-import pytest
-import json
-import tempfile
+import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from securegenomics.config import ConfigManager
+import pytest
+
 from securegenomics.auth import AuthManager
-from securegenomics.protocol import ProtocolManager, ProtocolInfo
+from securegenomics.config import ConfigManager
 from securegenomics.local import LocalAnalyzer
-from securegenomics.cli import main
+from securegenomics.protocol import ProtocolInfo, ProtocolManager
+
+
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path):
+    """Keep all manager cache/config writes inside pytest's temp directory."""
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        yield tmp_path
 
 
 class TestConfigManager:
     """Test configuration management."""
-    
-    def test_config_manager_initialization(self):
-        """Test that ConfigManager initializes correctly."""
-        config_manager = ConfigManager()
-        
-        # Should start unauthenticated
-        assert config_manager.get_current_user() is None
-        assert config_manager.config_dir.name == ".unauthenticated"
-        assert config_manager.default_config["server_url"] == "http://127.0.0.1:8000"
-        assert config_manager.default_config["github_org"] == "securegenomics"
-    
-    def test_get_config_returns_defaults(self):
-        """Test that get_config returns default configuration."""
-        config_manager = ConfigManager()
-        config = config_manager.get_config()
-        
-        assert "server_url" in config
-        assert "github_org" in config
-        assert config["server_url"] == "http://127.0.0.1:8000"
 
-    def test_authenticated_user_directories(self):
-        """Test that authenticated users get separate directories."""
+    def test_config_manager_initialization(self, isolated_home):
         config_manager = ConfigManager()
-        
-        # Initially unauthenticated
+
         assert config_manager.get_current_user() is None
+        assert config_manager.base_config_dir == isolated_home / ".securegenomics"
+        assert config_manager.config_dir.name == ".unauthenticated"
+        assert config_manager.default_config["server_url"] == "https://sg.bozmen.xyz"
+        assert config_manager.default_config["github_org"] == "securegenomics"
+        assert config_manager.protocols_dir.exists()
+
+    def test_get_config_returns_defaults(self):
+        config = ConfigManager().get_config()
+
+        assert config["server_url"] == "https://sg.bozmen.xyz"
+        assert config["github_org"] == "securegenomics"
+        assert config["auto_verify_protocols"] is True
+
+    def test_authenticated_user_directories_are_separate(self):
+        config_manager = ConfigManager()
+
         unauthenticated_dir = config_manager.config_dir
-        
-        # Set authenticated user
+
         config_manager.set_authenticated_user("alice@example.com")
-        assert config_manager.get_current_user() == "alice@example.com"
         alice_dir = config_manager.config_dir
-        
-        # Set different authenticated user
+
         config_manager.set_authenticated_user("bob@example.com")
-        assert config_manager.get_current_user() == "bob@example.com"
         bob_dir = config_manager.config_dir
-        
-        # All directories should be different
-        assert unauthenticated_dir != alice_dir
-        assert alice_dir != bob_dir
-        assert unauthenticated_dir != bob_dir
-        
-        # Should contain sanitized usernames
+
+        assert config_manager.get_current_user() == "bob@example.com"
+        assert unauthenticated_dir != alice_dir != bob_dir
         assert "alice" in str(alice_dir)
         assert "bob" in str(bob_dir)
-        assert ".unauthenticated" in str(unauthenticated_dir)
+        assert unauthenticated_dir.name == ".unauthenticated"
 
-    def test_authentication_persistence(self):
-        """Test that authentication persists across ConfigManager instances."""
-        import tempfile
-        import json
-        import time
-        from unittest.mock import patch
-        
-        # Create a temporary config directory for testing
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_base_dir = Path(temp_dir) / ".securegenomics"
-            temp_base_dir.mkdir()
-            
-            # Create a user directory with valid auth tokens
-            user_dir = temp_base_dir / "alice_c160f8cc"
-            user_dir.mkdir()
-            auth_file = user_dir / "auth.json"
-            
-            # Create valid tokens (expires in 1 hour)
-            tokens = {
-                "email": "alice@example.com",
-                "access_token": "fake_token",
-                "refresh_token": "fake_refresh",
-                "expires_at": time.time() + 3600  # 1 hour from now
-            }
-            
-            with open(auth_file, 'w') as f:
-                json.dump(tokens, f)
-            
-            # Patch the home directory to use our temp directory
-            with patch('pathlib.Path.home', return_value=Path(temp_dir)):
-                # First ConfigManager instance should find the user
-                cm1 = ConfigManager()
-                assert cm1.get_current_user() == "alice@example.com"
-                assert "alice_c160f8cc" in str(cm1.config_dir)
-                
-                # Second ConfigManager instance should also find the same user
-                cm2 = ConfigManager()
-                assert cm2.get_current_user() == "alice@example.com"
-                assert cm1.config_dir == cm2.config_dir
+    def test_authentication_persistence_uses_latest_valid_token(self, isolated_home):
+        base_config_dir = isolated_home / ".securegenomics"
+        alice_dir = base_config_dir / "alice_c160f8cc"
+        bob_dir = base_config_dir / "bob_4b9bb806"
+        alice_dir.mkdir(parents=True)
+        bob_dir.mkdir(parents=True)
+
+        (alice_dir / "auth.json").write_text(
+            '{"email": "alice@example.com", "expires_at": %s}' % (time.time() + 3600)
+        )
+        (bob_dir / "auth.json").write_text(
+            '{"email": "bob@example.com", "expires_at": %s}' % (time.time() + 7200)
+        )
+
+        config_manager = ConfigManager()
+
+        assert config_manager.get_current_user() == "bob@example.com"
+        assert config_manager.config_dir.name == "bob_4b9bb806"
 
 
 class TestAuthManager:
     """Test authentication management."""
-    
+
     def test_auth_manager_initialization(self):
-        """Test that AuthManager initializes correctly."""
         auth_manager = AuthManager()
-        
-        assert auth_manager.server_url == "http://127.0.0.1:8000"
+
+        assert auth_manager.server_url == "https://sg.bozmen.xyz"
         assert auth_manager.auth_file.name == "auth.json"
-    
+
     def test_is_authenticated_returns_false_when_no_tokens(self):
-        """Test that is_authenticated returns False when no tokens exist."""
         auth_manager = AuthManager()
-        
-        # Mock _load_tokens to return None (no tokens)
-        with patch.object(auth_manager, '_load_tokens', return_value=None):
+
+        with patch.object(auth_manager, "_load_tokens", return_value=None):
             assert not auth_manager.is_authenticated()
 
 
 class TestProtocolManager:
     """Test protocol management."""
-    
-    def test_protocol_manager_initialization(self):
-        """Test that ProtocolManager initializes correctly."""
+
+    def test_protocol_manager_initialization(self, isolated_home):
         protocol_manager = ProtocolManager()
-        
-        assert protocol_manager.github_org == "securegenomics"
-        assert protocol_manager.github_api_base == "https://api.github.com"
-    
-    @patch('requests.get')
-    def test_list_protocols_with_mock_response(self, mock_get):
-        """Test listing protocols with mocked GitHub response."""
-        # Mock GitHub API response
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = [
+
+        assert protocol_manager.config_manager.get_github_org() == "securegenomics"
+        assert protocol_manager.protocols_dir == isolated_home / ".securegenomics" / ".unauthenticated" / "protocols"
+
+    def test_list_protocols_uses_github_adapter(self):
+        github_client = Mock()
+        github_client.list_protocol_repos.return_value = [
             {
                 "name": "protocol-alzheimers-risk",
-                "description": "Alzheimer's disease risk analysis",
+                "description": "Repository fallback description",
                 "clone_url": "https://github.com/securegenomics/protocol-alzheimers-risk.git",
                 "default_branch": "main",
-                "archived": False
+                "archived": False,
             }
         ]
-        mock_get.return_value = mock_response
-        
-        protocol_manager = ProtocolManager()
-        
-        # Mock the _get_protocol_metadata method
-        with patch.object(protocol_manager, '_get_protocol_metadata') as mock_metadata:
-            mock_metadata.return_value = ProtocolInfo(
+        github_client.get_protocol_metadata.return_value = {
+            "description": "Alzheimer's disease risk analysis",
+            "version": "0.2.0",
+            "analysis_type": "risk",
+            "modes": ["local"],
+        }
+
+        with patch("securegenomics.protocol.get_github_client", return_value=github_client):
+            protocols = ProtocolManager().list_protocols()
+
+        assert protocols == [
+            ProtocolInfo(
                 name="alzheimers-risk",
                 description="Alzheimer's disease risk analysis",
                 github_url="https://github.com/securegenomics/protocol-alzheimers-risk.git",
-                commit_hash="main"
+                commit_hash="main",
+                version="0.2.0",
+                analysis_type="risk",
+                local_supported=True,
+                aggregated_supported=False,
             )
-            
-            protocols = protocol_manager.list_protocols()
-            
-            assert len(protocols) == 1
-            assert protocols[0].name == "alzheimers-risk"
-            assert protocols[0].description == "Alzheimer's disease risk analysis"
+        ]
+        github_client.list_protocol_repos.assert_called_once_with()
+        github_client.get_protocol_metadata.assert_called_once_with("alzheimers-risk")
+
+    def test_verify_accepts_matching_remote_hash_and_valid_structure(self, tmp_path):
+        protocol_dir = tmp_path / "test-protocol"
+        protocol_dir.mkdir()
+        github_client = Mock()
+        github_client.get_latest_commit_hash.return_value = "abc123def456"
+
+        protocol_manager = ProtocolManager()
+        with (
+            patch.object(protocol_manager.config_manager, "get_protocol_cache_dir", return_value=protocol_dir),
+            patch("securegenomics.protocol.get_github_client", return_value=github_client),
+            patch("securegenomics.protocol.subprocess.run", return_value=Mock(returncode=0, stdout="abc123def456\n")),
+            patch.object(protocol_manager, "_verify_protocol_structure", return_value=(True, [])),
+        ):
+            assert protocol_manager.verify("test-protocol") is True
+
+        github_client.get_latest_commit_hash.assert_called_once_with("protocol-test-protocol")
+
+    def test_verify_allows_offline_hash_when_structure_is_valid(self, tmp_path):
+        protocol_dir = tmp_path / "test-protocol"
+        protocol_dir.mkdir()
+        github_client = Mock()
+        github_client.get_latest_commit_hash.return_value = None
+
+        protocol_manager = ProtocolManager()
+        with (
+            patch.object(protocol_manager.config_manager, "get_protocol_cache_dir", return_value=protocol_dir),
+            patch("securegenomics.protocol.get_github_client", return_value=github_client),
+            patch("securegenomics.protocol.subprocess.run", return_value=Mock(returncode=0, stdout="abc123def456\n")),
+            patch.object(protocol_manager, "_verify_protocol_structure", return_value=(True, [])),
+        ):
+            assert protocol_manager.verify("test-protocol") is True
+
+    def test_verify_protocol_structure_returns_errors_for_invalid_protocol(self, tmp_path):
+        protocol_manager = ProtocolManager()
+
+        valid, errors = protocol_manager._verify_protocol_structure(tmp_path)
+
+        assert valid is False
+        assert errors == ["Missing required file: protocol.yaml"]
+
+    def test_verify_protocol_structure_supports_local_only_protocols(self, tmp_path):
+        (tmp_path / "protocol.yaml").write_text(
+            "name: demo\n"
+            "description: Demo protocol\n"
+            "modes:\n"
+            "  - local\n"
+        )
+        (tmp_path / "local_compute.py").write_text("def local_compute(**kwargs): return 1\n")
+
+        valid, errors = ProtocolManager()._verify_protocol_structure(tmp_path)
+
+        assert valid is True
+        assert errors == []
 
 
 class TestLocalAnalyzer:
     """Test local analysis functionality."""
-    
+
     def test_local_analyzer_initialization(self):
-        """Test that LocalAnalyzer initializes correctly."""
         analyzer = LocalAnalyzer()
-        
+
         assert analyzer.config_manager is not None
         assert analyzer.protocol_manager is not None
-    
-    def test_is_valid_vcf_with_invalid_file(self, tmp_path):
-        """Test VCF validation with invalid file."""
+
+    def test_analyze_requires_existing_vcf_before_protocol_execution(self, tmp_path):
         analyzer = LocalAnalyzer()
-        
-        # Create invalid VCF file
-        invalid_vcf = tmp_path / "invalid.vcf"
-        invalid_vcf.write_text("This is not a VCF file")
-        
-        assert not analyzer._is_valid_vcf(invalid_vcf)
-    
-    def test_is_valid_vcf_with_valid_file(self, tmp_path):
-        """Test VCF validation with valid file."""
+        missing_vcf = tmp_path / "missing.vcf"
+
+        with (
+            patch.object(analyzer.protocol_manager, "fetch") as fetch,
+            patch.object(analyzer.protocol_manager, "verify") as verify,
+            patch.object(analyzer.protocol_manager, "execute") as execute,
+            pytest.raises(Exception, match="VCF file not found"),
+        ):
+            analyzer.analyze("demo", missing_vcf)
+
+        fetch.assert_not_called()
+        verify.assert_not_called()
+        execute.assert_not_called()
+
+    def test_analyze_runs_local_compute_then_interpret_without_fetch_when_cached(self, tmp_path):
         analyzer = LocalAnalyzer()
-        
-        # Create minimal valid VCF file
-        valid_vcf_content = """##fileformat=VCFv4.2
-##contig=<ID=1,length=249250621>
-#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE1
-1	14370	rs6054257	G	A	29	PASS	.	GT	0|0
-"""
-        valid_vcf = tmp_path / "valid.vcf"
-        valid_vcf.write_text(valid_vcf_content)
-        
-        assert analyzer._is_valid_vcf(valid_vcf)
+        vcf_path = tmp_path / "sample.vcf"
+        vcf_path.write_text("not parsed by current LocalAnalyzer contract\n")
+        analyzer.config_manager.get_protocol_cache_dir("demo").mkdir(parents=True)
+
+        with (
+            patch.object(analyzer.protocol_manager, "fetch") as fetch,
+            patch.object(analyzer.protocol_manager, "verify", return_value=True) as verify,
+            patch.object(analyzer.protocol_manager, "execute", side_effect=["prs-score", "interpreted result"]) as execute,
+            patch("securegenomics.local.print") as print_mock,
+        ):
+            analyzer.analyze("demo", vcf_path)
+
+        fetch.assert_not_called()
+        verify.assert_called_once_with("demo")
+        assert execute.call_args_list[0].kwargs == {
+            "protocol_name": "demo",
+            "operation": "local_compute",
+            "vcf_path": str(vcf_path),
+        }
+        assert execute.call_args_list[1].kwargs == {
+            "protocol_name": "demo",
+            "operation": "local_interpret",
+            "prs": "prs-score",
+        }
+        print_mock.assert_called_once_with("interpreted result")
+
+    def test_list_local_protocols_filters_protocols_by_local_support(self):
+        analyzer = LocalAnalyzer()
+        protocols = [
+            ProtocolInfo(
+                name="local-demo",
+                description="",
+                github_url="https://example.test/local-demo.git",
+                commit_hash="main",
+                local_supported=True,
+            ),
+            ProtocolInfo(
+                name="aggregate-only",
+                description="",
+                github_url="https://example.test/aggregate-only.git",
+                commit_hash="main",
+                local_supported=False,
+            ),
+        ]
+
+        with patch.object(analyzer.protocol_manager, "list_protocols", return_value=protocols):
+            assert analyzer.list_local_protocols() == ["local-demo"]
 
 
 class TestCLIIntegration:
-    """Integration tests for CLI components."""
-    
-    @patch('subprocess.run')
-    def test_protocol_verification_with_mock_git(self, mock_run):
-        """Test protocol verification with mocked git command."""
-        # Mock git rev-parse command
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout="abc123def456\n"
-        )
-        
-        protocol_manager = ProtocolManager()
-        
-        # Create mock protocol directory
-        with patch.object(protocol_manager.config_manager, 'get_protocol_cache_dir') as mock_dir:
-            mock_protocol_dir = Mock()
-            mock_protocol_dir.exists.return_value = True
-            mock_dir.return_value = mock_protocol_dir
-            
-            # Mock protocol structure verification
-            with patch.object(protocol_manager, '_verify_protocol_structure', return_value=True):
-                # Mock network request for remote hash
-                with patch('requests.get') as mock_get:
-                    mock_response = Mock()
-                    mock_response.status_code = 200
-                    mock_response.json.return_value = {"sha": "abc123def456"}
-                    mock_get.return_value = mock_response
-                    
-                    result = protocol_manager.verify("test-protocol")
-                    assert result is True
+    """Integration tests for CLI-adjacent manager behavior."""
 
-    def test_system_clear_cache_command(self, tmp_path):
-        """Test the 'system clear-cache' command."""
-        # Use a temporary directory as the home directory for this test
-        with patch('pathlib.Path.home', return_value=tmp_path):
-            # Initialize ConfigManager to set up the .securegenomics directory
-            config_manager = ConfigManager()
-            base_cache_dir = config_manager.base_config_dir
-            assert base_cache_dir.exists()
+    def test_system_clear_cache_command(self, isolated_home):
+        config_manager = ConfigManager()
+        base_cache_dir = config_manager.base_config_dir
 
-            # Create some dummy files and directories in the cache
-            user_dir = base_cache_dir / "testuser_123"
-            user_dir.mkdir(parents=True, exist_ok=True)
-            (user_dir / "auth.json").write_text("{}")
-            protocol_dir = base_cache_dir / ".unauthenticated" / "protocols" / "test-protocol"
-            protocol_dir.mkdir(parents=True, exist_ok=True)
-            (protocol_dir / "manifest.json").write_text("{}")
+        user_dir = base_cache_dir / "testuser_123"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        (user_dir / "auth.json").write_text("{}")
+        protocol_dir = base_cache_dir / ".unauthenticated" / "protocols" / "test-protocol"
+        protocol_dir.mkdir(parents=True, exist_ok=True)
+        (protocol_dir / "manifest.json").write_text("{}")
 
-            assert (user_dir / "auth.json").exists()
-            assert (protocol_dir / "manifest.json").exists()
+        with patch("rich.prompt.Confirm.ask", return_value=True):
+            from securegenomics.cli import system_clear_cache
 
-            # Mock typer.confirm to automatically say "yes"
-            with patch('rich.prompt.Confirm.ask', return_value=True):
-                # Run the clear-cache command
-                # We need to simulate how Typer calls the command function.
-                # Directly calling system_clear_cache() from cli.py
-                from securegenomics.cli import system_clear_cache as system_clear_cache_func
-                try:
-                    system_clear_cache_func()
-                except SystemExit: # Typer raises SystemExit on successful command completion
-                    pass
+            try:
+                system_clear_cache()
+            except SystemExit:
+                pass
 
-
-            # Verify the base cache directory still exists (it should be recreated)
-            assert base_cache_dir.exists()
-
-            # Verify that the dummy files/dirs are gone
-            assert not (user_dir / "auth.json").exists()
-            assert not user_dir.exists() # The user-specific directory should be gone
-            assert not (protocol_dir / "manifest.json").exists()
-            assert not protocol_dir.exists() # The protocol directory should be gone
-
-            # Verify that essential subdirectories are recreated (e.g., .unauthenticated)
-            assert (base_cache_dir / ".unauthenticated").exists()
-            assert (base_cache_dir / ".unauthenticated" / "protocols").exists()
-            assert (base_cache_dir / ".unauthenticated" / "crypto_context").exists()
-            assert (base_cache_dir / ".unauthenticated" / "projects").exists()
-
-
-if __name__ == "__main__":
-    pytest.main([__file__]) 
+        assert base_cache_dir.exists()
+        assert not user_dir.exists()
+        assert not protocol_dir.exists()
+        assert (base_cache_dir / ".unauthenticated" / "protocols").exists()
+        assert (base_cache_dir / ".unauthenticated" / "crypto_context").exists()
+        assert (base_cache_dir / ".unauthenticated" / "projects").exists()
