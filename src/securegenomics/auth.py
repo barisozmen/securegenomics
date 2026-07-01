@@ -1,34 +1,67 @@
 """
 Authentication management for SecureGenomics CLI.
 
-Handles user authentication, JWT token management, and server communication.
+Handles user authentication, opaque bearer-token management, and server
+communication against the Gencrypt (gencrypt.xyz) Rails API.
+
+The token returned by /api/login and /api/register is an opaque, HMAC-signed
+Session id — NOT a JWT. Never decode it; derive its expiry from the
+`expires_in` field the server returns. There is no refresh endpoint: on expiry
+or any 401 the user simply runs `secgen login` again.
+
 Git-style auth UX: login once, persistent until explicit logout.
 """
 
 import getpass
-import json
 import re
-import sys
-import time
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
-import jwt
 import requests
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 
+from securegenomics import __version__
+from securegenomics.auth_errors import (
+    flatten_details,
+    parse_error_code,
+    parse_error_response,
+)
+from securegenomics.auth_tokens import TokenPersistence
 from securegenomics.config import ConfigManager
 
 console = Console()
 
+# Sent on every request so ciphertext/token calls are identifiable server-side
+# (Rails tags CLI sessions with this User-Agent) and always negotiate JSON.
+USER_AGENT = f"securegenomics-cli/{__version__}"
+
+
+def base_headers() -> Dict[str, str]:
+    """Baseline headers for every server call (no auth)."""
+    return {
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+    }
+
+
 class AuthManager:
-    """Manages authentication and JWT tokens."""
+    """Manages authentication and opaque bearer tokens.
+
+    The stored token is an opaque, HMAC-signed Session id returned by the
+    Gencrypt Rails API — NOT a JWT. It is never decoded; its expiry comes from
+    the server's ``expires_in`` field.
+    """
     
     def __init__(self) -> None:
         self.config_manager = ConfigManager()
         self.auth_file = self.config_manager.auth_file
         self.server_url = self.config_manager.get_server_url()
         self.last_email_file = self.config_manager.config_dir / "last_email"
+        self.token_persistence = TokenPersistence(
+            self.config_manager,
+            self.auth_file,
+            self.last_email_file,
+        )
     
     def interactive_login(self) -> bool:
         """Interactive login with secure password input."""
@@ -75,69 +108,60 @@ class AuthManager:
             return False
     
     def login(self, email: str, password: str) -> bool:
-        """Login to SecureGenomics server and store JWT tokens."""
+        """Login to the Gencrypt server and store the opaque bearer token."""
         try:
-            url = f"{self.server_url}/api/login/"
-            print(f"Logging in to {url} with email {email}")
+            url = f"{self.server_url}/api/login"
             response = requests.post(
                 url,
                 json={"email": email, "password": password},
-                timeout=30
+                headers=base_headers(),
+                timeout=30,
+                allow_redirects=False,
             )
-            
-            if response.status_code == 200:
-                data = response.json()
-                tokens = {
-                    "access_token": data["access"],
-                    "refresh_token": data["refresh"],
-                    "email": email,
-                    "expires_at": self._get_token_expiry(data["access"]),
-                }
-                
-                # Store tokens securely
-                self._save_tokens(tokens)
-                
-                # Update config manager with authenticated user
-                self.config_manager.set_authenticated_user(email)
-                
-                # Remember email for next time
-                self._save_last_email(email)
-                
-                # Log audit event
-                self.config_manager.log_audit_event("auth_login", {"email": email})
-                
+
+            # Rails returns 201 (a Session is created). Accept 200 too for safety.
+            if response.status_code in (200, 201):
+                self._store_token_response(response.json(), email)
                 return True
-            else:
-                # Parse Django Rest Framework error response
-                error_msg = self._parse_error_response(response)
-                raise Exception(error_msg)
-                
+
+            error_msg = self._parse_error_response(response)
+            raise Exception(error_msg)
+
         except requests.RequestException as e:
             raise Exception(f"Network error: {e}")
         except Exception as e:
             raise Exception(f"Login failed: {e}")
-    
+
     def register(self, email: str, password: str) -> bool:
-        """Register new SecureGenomics account."""
+        """Register a new Gencrypt account.
+
+        Rails returns the full token body on 201, so we store the token
+        directly instead of doing a second login round-trip.
+        """
         try:
             response = requests.post(
-                f"{self.server_url}/api/register/",
+                f"{self.server_url}/api/register",
                 json={"email": email, "password": password},
-                timeout=30
+                headers=base_headers(),
+                timeout=30,
+                allow_redirects=False,
             )
-            
-            if response.status_code == 201:
-                # Automatically login after successful registration
-                return self.login(email, password)
-            else:
-                # Parse Django Rest Framework error response
-                error_msg = self._parse_error_response(response)
-                raise Exception(error_msg)
-                
+
+            if response.status_code in (200, 201):
+                self._store_token_response(response.json(), email)
+                return True
+
+            error_msg = self._parse_error_response(response)
+            raise Exception(error_msg)
+
         except requests.RequestException as e:
             raise Exception(f"Network error: {e}")
         except Exception as e:
             raise Exception(f"Registration failed: {e}")
+
+    def _store_token_response(self, data: Dict, email: str) -> None:
+        """Persist the token body returned by /api/login or /api/register."""
+        self.token_persistence.store_response(data, email)
     
     def login_with_stored_credentials(self) -> bool:
         """Attempt login with stored credentials (if available)."""
@@ -219,245 +243,165 @@ class AuthManager:
         return None
     
     def _parse_error_response(self, response: requests.Response) -> str:
-        """Parse Django Rest Framework error response into a readable message."""
-        try:
-            error_data = response.json()
-            
-            # Check for simple detail message first
-            if isinstance(error_data, dict) and "detail" in error_data:
-                return error_data["detail"]
-            
-            # Handle Django Rest Framework validation errors
-            if isinstance(error_data, dict):
-                error_messages = []
-                
-                # Handle non_field_errors (general validation errors)
-                if "non_field_errors" in error_data:
-                    error_messages.extend(error_data["non_field_errors"])
-                
-                # Handle field-specific errors
-                for field, messages in error_data.items():
-                    if field != "non_field_errors":
-                        if isinstance(messages, list):
-                            for message in messages:
-                                # For certain fields, show just the message without field name
-                                if field in ["project_id", "email", "password"] and len(error_data) == 1:
-                                    error_messages.append(message)
-                                else:
-                                    error_messages.append(f"{field}: {message}")
-                        else:
-                            if field in ["project_id", "email", "password"] and len(error_data) == 1:
-                                error_messages.append(str(messages))
-                            else:
-                                error_messages.append(f"{field}: {messages}")
-                
-                if error_messages:
-                    return "; ".join(error_messages)
-            
-            # Fallback if we can't parse the error
-            return f"Request failed with status code: {response.status_code}"
-            
-        except (ValueError, TypeError):
-            # Response is not valid JSON or has unexpected structure
-            error_msg = f"Request failed with status code: {response.status_code}"
-            
-            # Try to include response text if it's reasonable length and not HTML
-            if (response.text and 
-                len(response.text) < 300 and 
-                not response.text.strip().startswith('<')):
-                error_msg += f": {response.text.strip()}"
-            
-            return error_msg
+        """Parse an error body into a human-readable message."""
+        return parse_error_response(response)
+
+    def _flatten_details(self, details) -> str:
+        """Render Rails error.details (dict or list) into a compact string."""
+        return flatten_details(details)
+
+    def _parse_error_code(self, response: requests.Response) -> Optional[str]:
+        """Return the Rails ``error.code`` string if present, else ``None``."""
+        return parse_error_code(response)
     
     def _save_last_email(self, email: str) -> None:
         """Save the last used email for convenience."""
-        try:
-            with open(self.last_email_file, 'w') as f:
-                f.write(email)
-            self.last_email_file.chmod(0o600)
-        except OSError:
-            # Non-critical, ignore errors
-            pass
+        self.token_persistence.save_last_email(email)
     
     def _load_last_email(self) -> Optional[str]:
         """Load the last used email."""
-        try:
-            if self.last_email_file.exists():
-                with open(self.last_email_file, 'r') as f:
-                    return f.read().strip()
-        except OSError:
-            pass
-        return None
+        return self.token_persistence.load_last_email()
     
     def logout(self) -> None:
-        """Logout by removing stored tokens."""
+        """Logout: revoke the server session (best-effort), then wipe local auth."""
         # Log audit event (before clearing tokens)
         user_email = self.get_current_user_email()
         self.config_manager.log_audit_event("auth_logout", {"email": user_email})
-        
-        if self.auth_file.exists():
-            self.auth_file.unlink()
-        
+
+        # Best-effort server-side revocation so the Session row is destroyed.
+        # Network/HTTP failures must never block a local logout.
+        headers = self._auth_headers_if_available()
+        if headers:
+            try:
+                requests.delete(
+                    f"{self.server_url}/api/logout",
+                    headers=headers,
+                    timeout=10,
+                    allow_redirects=False,
+                )
+            except requests.RequestException:
+                pass
+            except Exception:
+                pass
+
+        self.token_persistence.clear()
+
         # Clear authenticated user from config manager
         self.config_manager.clear_authenticated_user()
-    
+
     def whoami(self) -> Optional[Dict[str, str]]:
-        """Get current user information."""
+        """Get current user information as ``{"email": ...}``."""
         tokens = self._load_tokens()
         if not tokens:
             return None
-        
-        # Try to get user profile from server
+
+        cached_email = tokens.get("email", "unknown")
+
+        # Try to get the fresh profile from the server.
         try:
             headers = self._get_auth_headers()
             if not headers:
-                return None
-            
+                return {"email": cached_email}
+
             response = requests.get(
-                f"{self.server_url}/api/profile/",
+                f"{self.server_url}/api/profile",
                 headers=headers,
-                timeout=10
+                timeout=10,
+                allow_redirects=False,
             )
-            
+
             if response.status_code == 200:
-                return response.json()
-            else:
-                # Token might be expired, return cached email
-                return {"email": tokens.get("email", "unknown")}
-                
+                try:
+                    email = response.json().get("user", {}).get("email")
+                except (ValueError, TypeError):
+                    email = None
+                return {"email": email or cached_email}
+
+            # Token might be expired/revoked; fall back to cached email.
+            return {"email": cached_email}
+
         except requests.RequestException:
             # Network error, return cached email
-            return {"email": tokens.get("email", "unknown")}
-    
+            return {"email": cached_email}
+
     def delete_profile(self) -> bool:
-        """Delete user profile and all data."""
-        try:
-            headers = self._get_auth_headers()
-            if not headers:
-                raise Exception("Not authenticated")
-            
-            response = requests.post(
-                f"{self.server_url}/api/delete_profile/",
-                headers=headers,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                # Clear local tokens after successful deletion
-                self.logout()
-                return True
-            else:
-                # Parse Django Rest Framework error response
-                error_msg = self._parse_error_response(response)
-                raise Exception(error_msg)
-                
-        except requests.RequestException as e:
-            raise Exception(f"Network error: {e}")
-        except Exception as e:
-            raise Exception(f"Profile deletion failed: {e}")
-    
+        """Account deletion is not available from the CLI yet.
+
+        The Gencrypt API exposes no account-deletion endpoint. Degrade
+        gracefully instead of hitting a 404 or crashing.
+        """
+        console.print(
+            "[yellow]Account deletion isn't available from the CLI yet.[/yellow]"
+        )
+        console.print(
+            "Manage or delete your account at [blue]https://gencrypt.xyz/settings[/blue]."
+        )
+        return False
+
     def get_token(self) -> Optional[str]:
-        """Get valid access token, refreshing if necessary."""
+        """Return the stored bearer token, or ``None`` if missing/expired.
+
+        There is no refresh flow: the token is a 30-day opaque Session id. When
+        it expires or is revoked the user re-runs ``secgen login``.
+        """
         tokens = self._load_tokens()
         if not tokens:
             return None
-        
-        # Check if token is expired
+
         if self._is_token_expired(tokens):
-            # Try to refresh token
-            if self._refresh_token(tokens):
-                tokens = self._load_tokens()
-            else:
-                return None
-        
+            console.print(
+                "[yellow]Session expired or revoked. Run: secgen login[/yellow]"
+            )
+            return None
+
         return tokens.get("access_token")
-    
+
     def _get_auth_headers(self) -> Optional[Dict[str, str]]:
-        """Get authorization headers for API requests."""
+        """Get authorization + base headers for authenticated API requests."""
         token = self.get_token()
         if not token:
             return None
-        
-        return {"Authorization": f"Bearer {token}"}
+
+        headers = base_headers()
+        headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def _auth_headers_if_available(self) -> Optional[Dict[str, str]]:
+        """Auth headers built from a stored (possibly expired) token, no prompts.
+
+        Used by logout's best-effort revocation, where we still want to try to
+        destroy the server Session even if the local expiry has lapsed.
+        """
+        tokens = self._load_tokens()
+        if not tokens or not tokens.get("access_token"):
+            return None
+        headers = base_headers()
+        headers["Authorization"] = f"Bearer {tokens['access_token']}"
+        return headers
     
     def get_current_user_email(self) -> Optional[str]:
         """Get current user's email from stored tokens."""
-        tokens = self._load_tokens()
-        return tokens.get("email") if tokens else None
+        return self.token_persistence.current_user_email()
     
-    def _save_tokens(self, tokens: Dict[str, str]) -> None:
+    def _save_tokens(self, tokens: Dict[str, Any]) -> None:
         """Save tokens to auth file."""
-        try:
-            with open(self.auth_file, 'w') as f:
-                json.dump(tokens, f, indent=2)
-            
-            # Set restrictive permissions (user read/write only)
-            self.auth_file.chmod(0o600)
-            
-        except OSError as e:
-            raise Exception(f"Could not save authentication tokens: {e}")
+        self.token_persistence.save(tokens)
     
-    def _load_tokens(self) -> Optional[Dict[str, str]]:
+    def _load_tokens(self) -> Optional[Dict[str, Any]]:
         """Load tokens from auth file."""
-        if not self.auth_file.exists():
-            return None
-        
-        try:
-            with open(self.auth_file, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return None
+        return self.token_persistence.load()
     
-    def _get_token_expiry(self, token: str) -> float:
-        """Extract expiry time from JWT token."""
-        try:
-            # Decode without verification to get expiry
-            decoded = jwt.decode(token, options={"verify_signature": False})
-            return decoded.get("exp", time.time() + 3600)  # Default to 1 hour
-        except jwt.InvalidTokenError:
-            return time.time() + 3600  # Default to 1 hour
-    
-    def _is_token_expired(self, tokens: Dict[str, str]) -> bool:
-        """Check if access token is expired."""
-        expires_at = tokens.get("expires_at", 0)
-        # Add 5 minute buffer
-        return time.time() > (expires_at - 300)
-    
-    def _refresh_token(self, tokens: Dict[str, str]) -> bool:
-        """Refresh access token using refresh token."""
-        refresh_token = tokens.get("refresh_token")
-        if not refresh_token:
-            return False
-        
-        try:
-            response = requests.post(
-                f"{self.server_url}/api/token/refresh/",
-                json={"refresh": refresh_token},
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                tokens["access_token"] = data["access"]
-                tokens["expires_at"] = self._get_token_expiry(data["access"])
-                
-                # Update refresh token if provided
-                if "refresh" in data:
-                    tokens["refresh_token"] = data["refresh"]
-                
-                self._save_tokens(tokens)
-                return True
-            else:
-                # Refresh token is invalid, clear all tokens
-                self.logout()
-                return False
-                
-        except requests.RequestException:
-            return False
-    
+    def _is_token_expired(self, tokens: Dict[str, Any]) -> bool:
+        """Check if the stored token has passed its expiry (5-minute buffer)."""
+        return self.token_persistence.is_expired(tokens)
+
     def is_authenticated(self) -> bool:
-        """Check if user is currently authenticated."""
-        return self.get_token() is not None
+        """Silent predicate: True iff a stored, unexpired token exists.
+
+        Unlike ``get_token`` this never prints, so it's safe for frequent checks.
+        """
+        tokens = self._load_tokens()
+        return bool(tokens) and not self._is_token_expired(tokens)
     
     def _log_audit_event(self, event_type: str, **kwargs) -> None:
         """Log audit event with consistent structure."""
@@ -480,7 +424,9 @@ class AuthManager:
         
         # Set default timeout if not provided
         kwargs.setdefault('timeout', 30)
-        
+        # Never follow cross-origin redirects with the body/token attached.
+        kwargs.setdefault('allow_redirects', False)
+
         try:
             response = requests.request(method, url, **kwargs)
             return response
