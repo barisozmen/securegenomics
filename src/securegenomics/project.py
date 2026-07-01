@@ -19,6 +19,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
+from securegenomics.api import AuthenticatedApiClient
 from securegenomics.auth import AuthManager
 from securegenomics.config import ConfigManager
 from securegenomics.crypto import FHEManager
@@ -35,6 +36,7 @@ class ProjectManager:
         self.fhe_manager = FHEManager()
         self.protocol_manager = ProtocolManager()
         self.server_url = self.config_manager.get_server_url()
+        self.api_client = AuthenticatedApiClient(self.auth_manager, self.config_manager)
     
     # ============================================================================
     # HELPER METHODS FOR CODE SIMPLIFICATION
@@ -42,30 +44,11 @@ class ProjectManager:
     
     def _ensure_authenticated(self) -> None:
         """Ensure user is authenticated, raise exception if not."""
-        if not self.auth_manager.is_authenticated():
-            raise Exception("Not authenticated. Please login first.")
+        self.api_client._ensure_authenticated()
     
     def _make_api_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make authenticated API request with consistent error handling."""
-        self._ensure_authenticated()
-        headers = self.auth_manager._get_auth_headers()
-        
-        url = f"{self.server_url}{endpoint}"
-        
-        # Add headers to kwargs
-        if 'headers' in kwargs:
-            kwargs['headers'].update(headers)
-        else:
-            kwargs['headers'] = headers
-        
-        # Set default timeout if not provided
-        kwargs.setdefault('timeout', 30)
-        
-        try:
-            response = requests.request(method, url, **kwargs)
-            return response
-        except requests.RequestException as e:
-            raise Exception(f"Network error: {e}")
+        return self.api_client.request(method, endpoint, **kwargs)
     
     def _handle_api_response(self, response: requests.Response, success_status: int = 200, error_prefix: str = "Request failed") -> Dict[str, Any]:
         """Handle API response with consistent error parsing."""
