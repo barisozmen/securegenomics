@@ -17,6 +17,12 @@ from rich.console import Console
 
 console = Console()
 
+# The server the CLI talks to is PINNED to this URL. It is never sourced from a
+# per-user config.json, so a stale/old server_url can never misdirect the CLI.
+# The only override is the SECUREGENOMICS_SERVER_URL env var (dev/self-host),
+# which still passes through enforce_https().
+DEFAULT_SERVER_URL = "https://gencrypt.xyz"
+
 # Only literal loopback addresses may be reached over plain http. Anything else
 # (including mDNS-spoofable *.local names) must use TLS so that ciphertext and
 # bearer tokens never traverse the network in cleartext.
@@ -44,8 +50,46 @@ def enforce_https(server_url: str) -> str:
         f"Refusing to use insecure server_url {server_url!r}: HTTPS is required "
         f"for any non-loopback host (only http://localhost, http://127.0.0.1, "
         f"and http://[::1] are allowed for local development). "
-        f"Set a https:// server_url in your config.json."
+        f"Set SECUREGENOMICS_SERVER_URL to an https:// URL, or unset it to use "
+        f"{DEFAULT_SERVER_URL}."
     )
+
+
+# Guard so the "non-default server" notice prints at most once per process.
+_non_default_server_warned = False
+
+
+def warn_if_non_default_server() -> None:
+    """Print a one-line notice (once per process) when the CLI is pointed at a
+    non-default SecureGenomics server.
+
+    Guards against silently sending tokens/ciphertext to a non-gencrypt host:
+    whenever get_server_url() resolves to anything other than the pinned
+    DEFAULT_SERVER_URL (i.e. a SECUREGENOMICS_SERVER_URL override is in effect),
+    surface it once. No-op for the pinned default and after the first call. A
+    rejected env override (bad http) is left for the manager boundary to report
+    — this never raises.
+    """
+    global _non_default_server_warned
+    if _non_default_server_warned:
+        return
+
+    try:
+        server_url = ConfigManager().get_server_url()
+    except ValueError:
+        # Invalid override — enforce_https rejected it. _build_manager surfaces
+        # the clean error; don't double-report or crash the warning path.
+        return
+
+    if server_url == DEFAULT_SERVER_URL:
+        return
+
+    _non_default_server_warned = True
+    console.print(
+        f"⚠ Using non-default SecureGenomics server: {server_url}",
+        style="yellow dim",
+    )
+
 
 class ConfigManager:
     """Manages CLI configuration and system setup."""
@@ -64,9 +108,11 @@ class ConfigManager:
         # Try to get authenticated user and update paths if possible
         self._update_user_from_auth()
         
-        # Default configuration
+        # Default configuration.
+        # NOTE: server_url is deliberately absent — the server is pinned by
+        # get_server_url() and must never be sourced from config.json, so it is
+        # never a merged config key that a file could shadow.
         self.default_config = {
-            "server_url": "https://gencrypt.xyz",
             "github_org": "securegenomics",
             "protocol_timeout": 300,  # 5 minutes
             "upload_chunk_size": 1024 * 1024,  # 1MB
@@ -178,22 +224,31 @@ class ConfigManager:
             directory.mkdir(parents=True, exist_ok=True)
     
     def get_config(self) -> Dict[str, Any]:
-        """Get current configuration, creating default if needed."""
+        """Get current configuration, creating default if needed.
+
+        The server URL is deliberately NOT part of this config: it is pinned by
+        get_server_url() and must never be sourced from the on-disk config.json.
+        Any server_url planted in the file is dropped here so no caller reading
+        get_config()["server_url"] can ever be misdirected by a file.
+        """
         if not self.config_file.exists():
-            return self.default_config
-        
+            return self.default_config.copy()
+
         try:
             with open(self.config_file, 'r') as f:
                 config = json.load(f)
-            
+
             # Merge with defaults to ensure all keys exist
             merged_config = self.default_config.copy()
             merged_config.update(config)
+            # A file-planted server_url is never authoritative — the server is
+            # pinned by get_server_url(). Drop it so nothing downstream reads it.
+            merged_config.pop("server_url", None)
             return merged_config
-            
+
         except (json.JSONDecodeError, OSError) as e:
             console.print(f"Warning: Could not read config file: {e}")
-            return self.default_config
+            return self.default_config.copy()
     
     def save_config(self, config: Dict[str, Any]) -> None:
         """Save configuration to file."""
@@ -204,9 +259,17 @@ class ConfigManager:
             raise Exception(f"Could not save config: {e}")
     
     def get_server_url(self) -> str:
-        """Get the configured server URL, enforcing HTTPS for remote hosts."""
-        config = self.get_config()
-        return enforce_https(config["server_url"])
+        """Return the PINNED server URL — never sourced from config.json.
+
+        The server is hardcoded to DEFAULT_SERVER_URL so a stale/old server_url
+        left in a per-user config.json can never misdirect the CLI. The ONLY
+        override is the SECUREGENOMICS_SERVER_URL env var (for dev/self-host),
+        which still passes through enforce_https().
+        """
+        override = os.getenv("SECUREGENOMICS_SERVER_URL")
+        if override:
+            return enforce_https(override)
+        return DEFAULT_SERVER_URL
     
     def get_github_org(self) -> str:
         """Get the GitHub organization for protocols."""
@@ -258,7 +321,7 @@ class ConfigManager:
         return {
             "username": self.get_current_user(),
             "config_dir": str(self.config_dir),
-            "server_url": config["server_url"],
+            "server_url": self.get_server_url(),
             "server_connected": server_connected,
             "authenticated": authenticated,
             "cached_protocols": cached_protocols,

@@ -51,7 +51,7 @@ Everything is namespaced per authenticated user so multiple accounts coexist:
 ├── .unauthenticated/                 # staging before login
 └── <local-part>_<md5(email)[:8]>/    # e.g. alice_3f9c1a2b/
     ├── auth.json      # {token, email, expires_at, user} — chmod 0600
-    ├── config.json    # per-user overrides, merged over defaults (e.g. server_url)
+    ├── config.json    # per-user overrides, merged over defaults (e.g. output_format; NOT server_url — that's pinned)
     ├── last_email     # convenience for re-login — chmod 0600
     ├── audit.log
     ├── protocols/<name>/                 # cached protocol code from GitHub
@@ -69,6 +69,17 @@ This CLI talks to the **Gencrypt Rails 8** app at **`https://gencrypt.xyz`**
 **vanilla Rails JSON API** under `/api` — **not** Django / DRF / SimpleJWT /
 Celery. Integration plan + rationale:
 `../rails_securegenomics/docs/rfcs/0001-securegenomics-cli-integration.md`.
+
+**The server URL is PINNED to `https://gencrypt.xyz` (API at `/api`).** The user
+never supplies a server URL, and it is **never** read from `config.json` — a
+stale/old `server_url` left in a per-user config file is ignored entirely, so it
+can never misdirect the CLI. The **only** override is the
+`SECUREGENOMICS_SERVER_URL` env var (for dev/self-host), which still passes
+through the HTTPS guard (`enforce_https`): non-loopback `http://` is refused;
+`http://localhost`, `http://127.0.0.1`, `http://[::1]` are the only cleartext
+hosts allowed. `ConfigManager.get_server_url()` is the single source of truth —
+`enforce_https(SECUREGENOMICS_SERVER_URL)` when set, else the pinned
+`DEFAULT_SERVER_URL`.
 
 Contract the CLI must conform to (this is what the backend actually does):
 - **Auth token lives at the `token` key** (== `access_token`) with `expires_in`
@@ -90,7 +101,8 @@ Contract the CLI must conform to (this is what the backend actually does):
   (JSON). Public-context upload: `PATCH /api/projects/:id { public_context: <base64> }`.
 - **Security:** HTTPS enforced (refuse non-TLS to any non-loopback host; no
   `--insecure`); the server rejects secret/plaintext param keys with 422 **before
-  auth**; default `server_url` is `https://gencrypt.xyz`.
+  auth**; the server URL is pinned to `https://gencrypt.xyz` (never from
+  `config.json`; only the `SECUREGENOMICS_SERVER_URL` env var can override it).
 
 **Migration status:** RFC 0001 v1 is **implemented** (clean cutover — no
 backward-compat shim). The Django assumptions are gone: default host is

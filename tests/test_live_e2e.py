@@ -8,8 +8,9 @@ It does NOT boot a server: the server must already be up at SECGEN_SERVER_URL
 (default http://127.0.0.1:4700).
 
 Run it explicitly:
-    GENCRYPT_LIVE=1 SECGEN_SERVER_URL=http://127.0.0.1:4700 \
+    GENCRYPT_LIVE=1 SECUREGENOMICS_SERVER_URL=http://127.0.0.1:4700 \
         python -m pytest tests/test_live_e2e.py -v
+    (SECGEN_SERVER_URL is accepted as a legacy alias.)
 """
 
 import os
@@ -32,7 +33,15 @@ def test_live_e2e_driver_passes_all_steps():
     assert script.exists(), f"driver missing: {script}"
 
     env = os.environ.copy()
-    env.setdefault("SECGEN_SERVER_URL", "http://127.0.0.1:4700")
+    # Drive the CLI's REAL pinned-URL override path via the env var. Accept the
+    # legacy SECGEN_SERVER_URL as an alias for whoever still sets it.
+    target = (
+        env.get("SECUREGENOMICS_SERVER_URL")
+        or env.get("SECGEN_SERVER_URL")
+        or "http://127.0.0.1:4700"
+    )
+    env["SECUREGENOMICS_SERVER_URL"] = target
+    env["SECGEN_SERVER_URL"] = target
 
     proc = subprocess.run(
         [sys.executable, str(script)],

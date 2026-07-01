@@ -11,7 +11,8 @@ bearer header). The point is to prove the HTTP client + response parsing +
 Rails contract line up, not the cryptography.
 
 Usage:
-    SECGEN_SERVER_URL=http://127.0.0.1:4700 python scripts/live_e2e.py
+    SECUREGENOMICS_SERVER_URL=http://127.0.0.1:4700 python scripts/live_e2e.py
+    (SECGEN_SERVER_URL is accepted as a legacy alias.)
 
 Exit code 0 iff every step passes; otherwise a summary is printed and exit 1.
 
@@ -35,7 +36,16 @@ from pathlib import Path
 # 0. Sandbox everything BEFORE importing the CLI or constructing any manager.
 # --------------------------------------------------------------------------- #
 
-SERVER_URL = os.environ.get("SECGEN_SERVER_URL", "http://127.0.0.1:4700").rstrip("/")
+# Resolve the target from the env (accept the legacy SECGEN_SERVER_URL alias),
+# then export SECUREGENOMICS_SERVER_URL so the CLI's OWN get_server_url()
+# override path naturally returns it — no monkeypatching. This exercises the
+# real pin/override logic end-to-end.
+SERVER_URL = (
+    os.environ.get("SECUREGENOMICS_SERVER_URL")
+    or os.environ.get("SECGEN_SERVER_URL")
+    or "http://127.0.0.1:4700"
+).rstrip("/")
+os.environ["SECUREGENOMICS_SERVER_URL"] = SERVER_URL
 
 # Absolute repo locations (this driver is repo-pinned by design).
 SECGEN_REPO = Path(__file__).resolve().parents[1]
@@ -67,14 +77,8 @@ sys.path.insert(0, str(SECGEN_REPO / "src"))
 
 import requests  # noqa: E402  (after sandboxing, before managers is fine)
 
-import securegenomics.config as cfg  # noqa: E402
-
-# Force EVERY manager onto the e2e server. Managers cache the server_url at
-# __init__, so this MUST run before any manager is constructed. Loopback http is
-# allowed by the CLI's own https guard, and replacing the method sidesteps it
-# entirely for whatever URL the operator points us at.
-cfg.ConfigManager.get_server_url = lambda self, _u=SERVER_URL: _u  # type: ignore[assignment]
-
+# SECUREGENOMICS_SERVER_URL was exported above, so the CLI's real get_server_url()
+# override path points every manager at the e2e server — no monkeypatching.
 from securegenomics.auth import AuthManager  # noqa: E402
 from securegenomics.project import ProjectManager  # noqa: E402
 

@@ -33,16 +33,35 @@ class TestConfigManager:
         assert config_manager.get_current_user() is None
         assert config_manager.base_config_dir == isolated_home / ".securegenomics"
         assert config_manager.config_dir.name == ".unauthenticated"
-        assert config_manager.default_config["server_url"] == "https://gencrypt.xyz"
+        # server_url is NOT a default config key — the server is pinned by
+        # get_server_url() and can never be shadowed by config.json.
+        assert "server_url" not in config_manager.default_config
         assert config_manager.default_config["github_org"] == "securegenomics"
         assert config_manager.protocols_dir.exists()
 
     def test_get_config_returns_defaults(self):
         config = ConfigManager().get_config()
 
-        assert config["server_url"] == "https://gencrypt.xyz"
+        # get_config() never carries a server_url — it's pinned, not merged.
+        assert "server_url" not in config
         assert config["github_org"] == "securegenomics"
         assert config["auto_verify_protocols"] is True
+
+    def test_get_config_drops_file_planted_server_url(self, monkeypatch):
+        # A config.json with a server_url must NOT surface as authoritative.
+        monkeypatch.delenv("SECUREGENOMICS_SERVER_URL", raising=False)
+        config_manager = ConfigManager()
+        config_manager.config_file.write_text(
+            '{"server_url": "https://evil.example", "output_format": "json"}'
+        )
+
+        config = config_manager.get_config()
+
+        assert "server_url" not in config
+        # Unrelated file overrides still merge as before.
+        assert config["output_format"] == "json"
+        # The authoritative server URL still comes from the pin.
+        assert config_manager.get_server_url() == "https://gencrypt.xyz"
 
     def test_enforce_https_allows_https_and_loopback_http(self):
         assert enforce_https("https://gencrypt.xyz") == "https://gencrypt.xyz"
@@ -52,6 +71,37 @@ class TestConfigManager:
     def test_enforce_https_rejects_non_loopback_http(self):
         with pytest.raises(ValueError, match="HTTPS is required"):
             enforce_https("http://example.com")
+
+    def test_get_server_url_is_pinned_without_env_override(self, monkeypatch):
+        # Fresh temp HOME (isolated_home) and NO env override -> pinned default.
+        monkeypatch.delenv("SECUREGENOMICS_SERVER_URL", raising=False)
+
+        assert ConfigManager().get_server_url() == "https://gencrypt.xyz"
+
+    def test_get_server_url_ignores_stale_config_json(self, monkeypatch):
+        # A per-user config.json can NEVER misdirect the CLI: the server URL is
+        # not sourced from it at all.
+        monkeypatch.delenv("SECUREGENOMICS_SERVER_URL", raising=False)
+        config_manager = ConfigManager()
+        config_manager.config_file.write_text('{"server_url": "https://evil.example"}')
+
+        assert config_manager.get_server_url() == "https://gencrypt.xyz"
+
+    def test_get_server_url_env_override_is_honored(self, monkeypatch):
+        monkeypatch.setenv("SECUREGENOMICS_SERVER_URL", "https://staging.example")
+
+        assert ConfigManager().get_server_url() == "https://staging.example"
+
+    def test_get_server_url_env_override_rejects_non_loopback_http(self, monkeypatch):
+        monkeypatch.setenv("SECUREGENOMICS_SERVER_URL", "http://evil.example")
+
+        with pytest.raises(ValueError, match="HTTPS is required"):
+            ConfigManager().get_server_url()
+
+    def test_get_server_url_env_override_allows_loopback_http(self, monkeypatch):
+        monkeypatch.setenv("SECUREGENOMICS_SERVER_URL", "http://127.0.0.1:4700")
+
+        assert ConfigManager().get_server_url() == "http://127.0.0.1:4700"
 
     def test_authenticated_user_directories_are_separate(self):
         config_manager = ConfigManager()
@@ -88,6 +138,36 @@ class TestConfigManager:
 
         assert config_manager.get_current_user() == "bob@example.com"
         assert config_manager.config_dir.name == "bob_4b9bb806"
+
+
+class TestNonDefaultServerWarning:
+    """The CLI must surface (once) when pointed at a non-gencrypt server."""
+
+    def test_warns_once_for_non_default_server(self, monkeypatch):
+        import securegenomics.config as config_mod
+
+        monkeypatch.setattr(config_mod, "_non_default_server_warned", False)
+        monkeypatch.setenv("SECUREGENOMICS_SERVER_URL", "https://staging.example")
+
+        with patch.object(config_mod, "console") as console:
+            config_mod.warn_if_non_default_server()
+            config_mod.warn_if_non_default_server()  # second call is a no-op
+
+        assert console.print.call_count == 1
+        message = console.print.call_args[0][0]
+        assert "staging.example" in message
+        assert "non-default" in message.lower()
+
+    def test_does_not_warn_for_default_server(self, monkeypatch):
+        import securegenomics.config as config_mod
+
+        monkeypatch.setattr(config_mod, "_non_default_server_warned", False)
+        monkeypatch.delenv("SECUREGENOMICS_SERVER_URL", raising=False)
+
+        with patch.object(config_mod, "console") as console:
+            config_mod.warn_if_non_default_server()
+
+        console.print.assert_not_called()
 
 
 class TestAuthManager:

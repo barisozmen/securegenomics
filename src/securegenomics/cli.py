@@ -21,7 +21,7 @@ from securegenomics.project import ProjectManager
 from securegenomics.data import DataManager
 from securegenomics.crypto_context import CryptoContextManager
 from securegenomics.local import LocalAnalyzer
-from securegenomics.config import ConfigManager
+from securegenomics.config import ConfigManager, warn_if_non_default_server
 from securegenomics.cli_presenters import (
     follow_project_logs,
     print_json,
@@ -116,6 +116,10 @@ def cli_callback(
         os.environ["SECUREGENOMICS_QUIET"] = "1"
     if verbose:
         os.environ["SECUREGENOMICS_VERBOSE"] = "1"
+
+    # Never talk to a non-gencrypt host silently — surface a non-default server
+    # once per invocation (before any command reaches out to it).
+    warn_if_non_default_server()
 
 
 def big_announcement(text) -> None:
