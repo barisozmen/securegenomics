@@ -6,7 +6,6 @@ encrypted file uploads, and job management.
 """
 
 import uuid
-import json
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -23,6 +22,7 @@ from securegenomics.api import AuthenticatedApiClient
 from securegenomics.auth import AuthManager
 from securegenomics.config import ConfigManager
 from securegenomics.crypto import FHEManager
+from securegenomics.file_codec import load_file_smart, save_file_smart
 from securegenomics.project_result import ProjectResultProcessor
 from securegenomics.protocol import ProtocolManager
 
@@ -79,32 +79,11 @@ class ProjectManager:
     
     def _load_file_smart(self, file_path: Path) -> Any:
         """Smart file loading that handles JSON, text, and binary formats."""
-        try:
-            # Try to load as JSON first
-            with open(file_path, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            try:
-                # Try as text
-                with open(file_path, 'r') as f:
-                    return f.read()
-            except UnicodeDecodeError:
-                # Load as binary
-                with open(file_path, 'rb') as f:
-                    return f.read()
+        return load_file_smart(file_path)
     
     def _save_file_smart(self, file_path: Path, data: Any) -> None:
         """Smart file saving that handles different data types."""
-        if isinstance(data, str):
-            with open(file_path, 'w') as f:
-                f.write(data)
-        elif isinstance(data, (bytes, bytearray)):
-            with open(file_path, 'wb') as f:
-                f.write(data)
-        else:
-            # Assume it's a serializable object (dict, list, etc.)
-            with open(file_path, 'w') as f:
-                json.dump(data, f)
+        save_file_smart(file_path, data)
 
     # ============================================================================
     # PROJECT CREATION AND MANAGEMENT
@@ -501,11 +480,11 @@ class ProjectManager:
     def get_result(self, project_id: str) -> Dict[str, Any]:
         """Get results for completed project using protocol's decrypt functions."""
         processor = ProjectResultProcessor(
-            server_url=self.server_url,
             auth_manager=self.auth_manager,
             config_manager=self.config_manager,
             fhe_manager=self.fhe_manager,
             protocol_manager=self.protocol_manager,
+            result_response_loader=self._fetch_result_response,
             project_info_loader=self._get_project_info,
             job_status_loader=self.get_job_status,
             encrypted_result_saver=self._save_encrypted_result,
@@ -514,6 +493,15 @@ class ProjectManager:
             safe_print=self._safe_print,
         )
         return processor.get_result(project_id)
+
+    def _fetch_result_response(self, project_id: str) -> requests.Response:
+        """Fetch the raw result response through the shared API client."""
+        return self._make_api_request(
+            "GET",
+            "/api/result",
+            params={"project_id": project_id},
+            timeout=30,
+        )
     
     def _get_project_info(self, project_id: str) -> Optional[Dict[str, Any]]:
         """Get project information from server."""

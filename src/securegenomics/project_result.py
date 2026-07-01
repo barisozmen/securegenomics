@@ -29,11 +29,11 @@ class ProjectResultProcessor:
     def __init__(
         self,
         *,
-        server_url: str,
         auth_manager: AuthManager,
         config_manager: ConfigManager,
         fhe_manager: FHEManager,
         protocol_manager: ProtocolManager,
+        result_response_loader: Callable[[str], requests.Response],
         project_info_loader: Callable[[str], Dict[str, Any]],
         job_status_loader: Callable[[str], Dict[str, Any]],
         encrypted_result_saver: Callable[..., Path],
@@ -41,11 +41,11 @@ class ProjectResultProcessor:
         interpreted_result_saver: Callable[..., Path],
         safe_print: Callable[..., None],
     ) -> None:
-        self.server_url = server_url
         self.auth_manager = auth_manager
         self.config_manager = config_manager
         self.fhe_manager = fhe_manager
         self.protocol_manager = protocol_manager
+        self.result_response_loader = result_response_loader
         self.project_info_loader = project_info_loader
         self.job_status_loader = job_status_loader
         self.encrypted_result_saver = encrypted_result_saver
@@ -63,19 +63,15 @@ class ProjectResultProcessor:
             raise Exception(f"Network error: {e}")
         except Exception as e:
             error_msg = self._binary_safe_error_message(e)
+            if error_msg.startswith("Network error:"):
+                console.print(f"❌ Network error occurred: {error_msg}")
+                raise Exception(error_msg)
             console.print(f"❌ Error getting results: {error_msg}")
             raise Exception(f"Failed to get results: {error_msg}")
 
     def _fetch_result_response(self, project_id: str) -> requests.Response:
         console.print(f"📡 Fetching results for project: {project_id}")
-        headers = self.auth_manager._get_auth_headers()
-        response = requests.get(
-            f"{self.server_url}/api/result",
-            params={"project_id": project_id},
-            headers=headers,
-            timeout=30,
-            allow_redirects=False,
-        )
+        response = self.result_response_loader(project_id)
         console.print(
             "📡 Server response: "
             f"{response.status_code}, "

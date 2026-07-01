@@ -26,7 +26,6 @@ class FakeResultResponse:
 
 def test_get_result_processes_json_encrypted_payload(isolated_home):
     pm = ProjectManager()
-    pm.server_url = "https://gencrypt.example"
 
     context_dir = isolated_home / "crypto-context"
     context_dir.mkdir()
@@ -52,12 +51,7 @@ def test_get_result_processes_json_encrypted_payload(isolated_home):
         raise AssertionError(f"unexpected operation: {operation}")
 
     with (
-        patch("securegenomics.project_result.requests.get", return_value=response) as get,
-        patch.object(
-            pm.auth_manager,
-            "_get_auth_headers",
-            return_value={"Authorization": "Bearer token"},
-        ),
+        patch.object(pm, "_make_api_request", return_value=response) as api_request,
         patch.object(pm, "_get_project_info", return_value={"protocol_name": "demo"}),
         patch.object(pm, "get_job_status", side_effect=AssertionError("unused")),
         patch.object(pm.config_manager, "get_crypto_context_dir", return_value=context_dir),
@@ -78,12 +72,11 @@ def test_get_result_processes_json_encrypted_payload(isolated_home):
     ):
         result = pm.get_result("proj-1")
 
-    get.assert_called_once_with(
-        "https://gencrypt.example/api/result",
+    api_request.assert_called_once_with(
+        "GET",
+        "/api/result",
         params={"project_id": "proj-1"},
-        headers={"Authorization": "Bearer token"},
         timeout=30,
-        allow_redirects=False,
     )
     save_encrypted.assert_called_once_with("proj-1", b"\x00\x01\x02")
     save_decrypted.assert_called_once_with("proj-1", {"raw": 7})

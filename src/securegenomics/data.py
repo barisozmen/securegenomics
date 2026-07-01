@@ -267,15 +267,14 @@ class DataManager:
 
         return files, data
 
-    def _post_upload(self, files: Dict[str, Any], data: Dict[str, Any], headers: Dict[str, str]) -> requests.Response:
+    def _post_upload(self, files: Dict[str, Any], data: Dict[str, Any]) -> requests.Response:
         """Send the encrypted file upload request."""
-        return requests.post(
-            f"{self.server_url}/api/upload",
+        return self._make_api_request(
+            "POST",
+            "/api/upload",
             files=files,
             data=data,
-            headers=headers,
             timeout=300,
-            allow_redirects=False,
         )
 
     def _handle_upload_response(self, response: requests.Response, encrypted_path: Path) -> None:
@@ -507,7 +506,6 @@ class DataManager:
                 
                 progress.update(task, advance=20)
                 
-                headers = self.auth_manager._get_auth_headers()
                 files, data = self._build_upload_payload(
                     project_id,
                     encrypted_path,
@@ -517,7 +515,7 @@ class DataManager:
                 
                 progress.update(task, advance=20, description="Uploading to server...")
                 
-                response = self._post_upload(files, data, headers)
+                response = self._post_upload(files, data)
                 if response.status_code == 200 or response.status_code == 201:
                     progress.update(task, advance=60, completed=True)
 
