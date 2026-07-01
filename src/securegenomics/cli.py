@@ -13,7 +13,6 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.traceback import install
-import pyfiglet
 
 from securegenomics import __version__
 from securegenomics.auth import AuthManager
@@ -56,8 +55,8 @@ app.add_typer(local_app, name="local")
 app.add_typer(system_app, name="system")
 
 # Global options
-@app.callback()
-def main(
+@app.callback(invoke_without_command=True)
+def cli_callback(
     version: Optional[bool] = typer.Option(
         None, "--version", "-v", help="Show version and exit"
     ),
@@ -93,11 +92,16 @@ def main(
 
 def big_announcement(text) -> None:
     print('\n' + '='*60)
+    try:
+        import pyfiglet
+    except ImportError:
+        pyfiglet = None
+
     if isinstance(text, str):
-        print(pyfiglet.figlet_format(text, font='slant'))
+        print(pyfiglet.figlet_format(text, font='slant') if pyfiglet else text)
     else:
         for line in text:
-            print(pyfiglet.figlet_format(line, font='slant'))
+            print(pyfiglet.figlet_format(line, font='slant') if pyfiglet else line)
     print('='*60 + '\n')
 
 
@@ -1795,39 +1799,6 @@ def project_result(
         raise typer.Exit(1)
 
 
-@project_app.command("delete")
-def project_delete(
-    project_id: str = typer.Argument(..., help="Project ID to delete"),
-) -> None:
-    """Delete a project and all associated data."""
-    try:
-        from rich.prompt import Confirm
-        
-        console.print(f"\n[bold red]⚠️  WARNING: This will permanently delete project {project_id}![/bold red]")
-        console.print("This includes:")
-        console.print("• All uploaded VCF files")
-        console.print("• All computation results")
-        console.print("• All project metadata")
-        console.print("• Local crypto context")
-        console.print("• This action cannot be undone\n")
-        
-        confirm = Confirm.ask(f"Are you sure you want to delete project {project_id}?", default=False)
-        if not confirm:
-            console.print("Project deletion cancelled")
-            return
-        
-        project_manager = ProjectManager()
-        success = project_manager.delete(project_id)
-        if success:
-            console.print(f"✅ Project {project_id} deleted successfully", style="green")
-        else:
-            console.print(f"❌ Failed to delete project {project_id}", style="red")
-            raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"❌ Error deleting project: {e}", style="red")
-        raise typer.Exit(1)
-
-
 # ============================================================================
 # COMMAND ALIASES (for convenience)
 # ============================================================================
@@ -1924,7 +1895,8 @@ def create_alias(
 ) -> None:
     """Create new project (alias for 'project create')."""
     project_create(protocol_name, description, interactive, json_output)
-    big_announcement("Project Created")
+    if not json_output:
+        big_announcement("Project Created")
 
 
 @app.command("list")
