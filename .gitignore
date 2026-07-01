@@ -207,3 +207,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local Rails source checkout
+src_rails_securegenomics/
+.gstack/
+
+# Live end-to-end driver temp artifacts (scripts/live_e2e.py)
+secgen-live-e2e-*/
+.secgen_e2e/
+scripts/*.log

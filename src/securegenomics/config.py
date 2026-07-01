@@ -9,12 +9,43 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 import time
 
 import requests
 from rich.console import Console
 
 console = Console()
+
+# Only literal loopback addresses may be reached over plain http. Anything else
+# (including mDNS-spoofable *.local names) must use TLS so that ciphertext and
+# bearer tokens never traverse the network in cleartext.
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def enforce_https(server_url: str) -> str:
+    """Return server_url unchanged if it is safe to send secrets to, else raise.
+
+    https is always allowed. Plain http is allowed only for literal loopback
+    hosts (localhost / 127.0.0.1 / ::1) used in local development. Everything
+    else is rejected so no ciphertext or token is ever sent cleartext.
+    """
+    parsed = urlparse(server_url)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+
+    if scheme == "https":
+        return server_url
+
+    if scheme == "http" and host in LOOPBACK_HOSTS:
+        return server_url
+
+    raise ValueError(
+        f"Refusing to use insecure server_url {server_url!r}: HTTPS is required "
+        f"for any non-loopback host (only http://localhost, http://127.0.0.1, "
+        f"and http://[::1] are allowed for local development). "
+        f"Set a https:// server_url in your config.json."
+    )
 
 class ConfigManager:
     """Manages CLI configuration and system setup."""
@@ -35,7 +66,7 @@ class ConfigManager:
         
         # Default configuration
         self.default_config = {
-            "server_url": "https://sg.bozmen.xyz",
+            "server_url": "https://gencrypt.xyz",
             "github_org": "securegenomics",
             "protocol_timeout": 300,  # 5 minutes
             "upload_chunk_size": 1024 * 1024,  # 1MB
@@ -173,9 +204,9 @@ class ConfigManager:
             raise Exception(f"Could not save config: {e}")
     
     def get_server_url(self) -> str:
-        """Get the configured server URL."""
+        """Get the configured server URL, enforcing HTTPS for remote hosts."""
         config = self.get_config()
-        return config["server_url"]
+        return enforce_https(config["server_url"])
     
     def get_github_org(self) -> str:
         """Get the GitHub organization for protocols."""
@@ -196,15 +227,21 @@ class ConfigManager:
         """Get comprehensive system status."""
         config = self.get_config()
         
-        # Check server connectivity
+        # Check server connectivity. 200/401 both mean the server is up (401 =
+        # up but unauthenticated). Redirects are not followed so a mis-pointed
+        # host can't silently bounce the probe to another origin.
         server_connected = False
         try:
             response = requests.get(
-                f"{config['server_url']}/api/profile/",
-                timeout=5
+                f"{self.get_server_url()}/api/profile",
+                timeout=5,
+                allow_redirects=False,
             )
-            server_connected = response.status_code in [200, 401]  # 401 means server is up but not authenticated
+            server_connected = response.status_code in [200, 401]
         except requests.RequestException:
+            server_connected = False
+        except ValueError:
+            # server_url failed the HTTPS guard; treat as not connected.
             server_connected = False
         
         # Count cached protocols

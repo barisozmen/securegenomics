@@ -9,7 +9,6 @@ import pickle
 import gzip
 import yaml
 import requests
-import base64
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -198,6 +197,49 @@ class FHEManager:
         except Exception as e:
             raise Exception(f"Failed to load crypto context: {e}")
     
+    def _protocol_name_for_project(self, project_id: str) -> str:
+        """Resolve a project's protocol name via the API.
+
+        The context download stream is opaque bytes, so the protocol name must
+        come from project info. Tries the flat /protocol endpoint first
+        (contributor-accessible), then the full project endpoint (owner; nested
+        under "project"). Degrades to "unknown" rather than raising.
+        """
+        headers = self.auth_manager._get_auth_headers()
+        base = self.server_url
+
+        try:
+            resp = requests.get(
+                f"{base}/api/projects/{project_id}/protocol",
+                headers=headers, timeout=30, allow_redirects=False,
+            )
+            if resp.status_code == 200:
+                name = resp.json().get("protocol_name")
+                if name:
+                    return name
+        except requests.RequestException:
+            pass
+        except (ValueError, TypeError):
+            pass
+
+        try:
+            resp = requests.get(
+                f"{base}/api/projects/{project_id}",
+                headers=headers, timeout=30, allow_redirects=False,
+            )
+            if resp.status_code == 200:
+                body = resp.json()
+                project = body.get("project", body)
+                name = project.get("protocol_name")
+                if name:
+                    return name
+        except requests.RequestException:
+            pass
+        except (ValueError, TypeError):
+            pass
+
+        return "unknown"
+
     def download_public_context(self, project_id: str) -> bytes:
         """Download public context from server and save locally.
         
@@ -219,7 +261,7 @@ class FHEManager:
             
             # Make API request to download context
             headers = self.auth_manager._get_auth_headers()
-            url = f"{self.server_url}/api/context/download/"
+            url = f"{self.server_url}/api/context/download"
             params = {"project_id": project_id}
             
             # Debug logging
@@ -232,42 +274,40 @@ class FHEManager:
                 url,
                 params=params,
                 headers=headers,
-                timeout=30
+                timeout=30,
+                allow_redirects=False,
             )
-            
+
             # Debug logging for response
             if self.config_manager and self.config_manager.is_debug():
                 console.print(f"[dim]DEBUG: Response status: {response.status_code}[/dim]")
                 console.print(f"[dim]DEBUG: Response headers: {dict(response.headers)}[/dim]")
-                if response.text and len(response.text) < 1000:
-                    console.print(f"[dim]DEBUG: Response body: {response.text}[/dim]")
-            
+
             if response.status_code == 200:
-                data = response.json()
-                
-                # Extract context information
-                protocol_name = data["protocol"]
-                public_context_b64 = data["public_context"]
-                context_size = data["context_size"]
-                
+                # Rails streams the public context as RAW BINARY bytes — not JSON.
+                public_context_bytes = response.content
+                context_size = len(public_context_bytes)
+
+                if context_size == 0:
+                    raise Exception("Received an empty public context from the server")
+
+                # Protocol name comes from already-fetched project info, not the
+                # download response (which is opaque bytes).
+                protocol_name = self._protocol_name_for_project(project_id)
+
                 console.print(f"📦 Downloaded context: {context_size} bytes for protocol {protocol_name}")
-                
-                # Decode base64 context
-                try:
-                    public_context_bytes = base64.b64decode(public_context_b64)
-                except Exception as e:
-                    raise Exception(f"Failed to decode context data: {e}")
-                
+
                 # Save context locally for future use
+                context_dir = None
                 if self.config_manager:
                     try:
                         context_dir = self.config_manager.get_crypto_context_dir(project_id)
                         context_dir.mkdir(parents=True, exist_ok=True)
-                        
+
                         # Save public context with standard filename for load_context compatibility
                         with open(context_dir / "public_crypto_context.bin", 'wb') as f:
                             f.write(public_context_bytes)
-                        
+
                         # Save metadata for reference
                         metadata = {
                             "project_id": project_id,
@@ -279,12 +319,12 @@ class FHEManager:
                         metadata_path = context_dir / "crypto_context_metadata.pkl"
                         with open(metadata_path, 'wb') as f:
                             pickle.dump(metadata, f)
-                        
+
                         console.print(f"💾 Saved public context to: {context_dir}")
                     except Exception as e:
                         console.print(f"[yellow]Warning: Could not save context locally: {e}[/yellow]")
-                
-                console.print(f"✅ Public crypto context ({len(public_context_bytes)} bytes) downloaded successfully to {context_dir}")
+
+                console.print(f"✅ Public crypto context ({context_size} bytes) downloaded successfully to {context_dir}")
                 return public_context_bytes
                 
             elif response.status_code == 404:

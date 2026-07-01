@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from securegenomics.auth import AuthManager
-from securegenomics.config import ConfigManager
+from securegenomics.config import ConfigManager, enforce_https
 from securegenomics.local import LocalAnalyzer
 from securegenomics.protocol import ProtocolInfo, ProtocolManager
 
@@ -33,16 +33,25 @@ class TestConfigManager:
         assert config_manager.get_current_user() is None
         assert config_manager.base_config_dir == isolated_home / ".securegenomics"
         assert config_manager.config_dir.name == ".unauthenticated"
-        assert config_manager.default_config["server_url"] == "https://sg.bozmen.xyz"
+        assert config_manager.default_config["server_url"] == "https://gencrypt.xyz"
         assert config_manager.default_config["github_org"] == "securegenomics"
         assert config_manager.protocols_dir.exists()
 
     def test_get_config_returns_defaults(self):
         config = ConfigManager().get_config()
 
-        assert config["server_url"] == "https://sg.bozmen.xyz"
+        assert config["server_url"] == "https://gencrypt.xyz"
         assert config["github_org"] == "securegenomics"
         assert config["auto_verify_protocols"] is True
+
+    def test_enforce_https_allows_https_and_loopback_http(self):
+        assert enforce_https("https://gencrypt.xyz") == "https://gencrypt.xyz"
+        assert enforce_https("http://localhost:8000") == "http://localhost:8000"
+        assert enforce_https("http://127.0.0.1:8000") == "http://127.0.0.1:8000"
+
+    def test_enforce_https_rejects_non_loopback_http(self):
+        with pytest.raises(ValueError, match="HTTPS is required"):
+            enforce_https("http://example.com")
 
     def test_authenticated_user_directories_are_separate(self):
         config_manager = ConfigManager()
@@ -87,7 +96,7 @@ class TestAuthManager:
     def test_auth_manager_initialization(self):
         auth_manager = AuthManager()
 
-        assert auth_manager.server_url == "https://sg.bozmen.xyz"
+        assert auth_manager.server_url == "https://gencrypt.xyz"
         assert auth_manager.auth_file.name == "auth.json"
 
     def test_is_authenticated_returns_false_when_no_tokens(self):

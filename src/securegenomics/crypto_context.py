@@ -55,11 +55,13 @@ class CryptoContextManager:
         try:
             response = self._make_api_request(
                 "GET",
-                f"/api/projects/{project_id}/"
+                f"/api/projects/{project_id}"
             )
-            
+
             if response.status_code == 200:
-                return response.json()
+                # GET /api/projects/:id nests the record under "project".
+                body = response.json()
+                return body.get("project", body)
             elif response.status_code == 404:
                 raise Exception(f"Project '{project_id}' not found. Please check the project ID.")
             elif response.status_code == 401:
@@ -72,7 +74,7 @@ class CryptoContextManager:
                 raise Exception(error_msg)
         except Exception as e:
             raise
-    
+
     # ============================================================================
     # CRYPTO CONTEXT VALIDATION OPERATIONS
     # ============================================================================
@@ -200,27 +202,27 @@ class CryptoContextManager:
                 # Convert public context bytes to base64 for JSON serialization
                 public_context_b64 = base64.b64encode(public_context_bytes).decode('utf-8')
                 
-                progress.update(task, description=f"Uploading public context to server, at URL {self.server_url}/api/projects/{project_id}/ ...")
+                progress.update(task, description=f"Uploading public context to server, at URL {self.server_url}/api/projects/{project_id} ...")
                 
                 # Upload public context to server
                 upload_timeout = self.config_manager.get_crypto_context_upload_timeout()
                 headers = self.auth_manager._get_auth_headers()
                 response = requests.patch(
-                    f"{self.server_url}/api/projects/{project_id}/",
+                    f"{self.server_url}/api/projects/{project_id}",
                     json={"public_context": public_context_b64},
                     headers=headers,
-                    timeout=upload_timeout
+                    timeout=upload_timeout,
+                    allow_redirects=False,
                 )
-                
+
                 if response.status_code == 409:
-                    # Handle crypto context already exists error
-                    try:
-                        error_data = response.json()
-                        if error_data.get('error') == 'CRYPTO_CONTEXT_ALREADY_EXISTS':
-                            raise Exception(f"Public crypto context already exists on server for project {project_id}. Each project can only have one crypto context for security reasons.")
-                    except:
-                        pass
-                    # Fallback to generic conflict error
+                    # Rails error.code == "public_context_exists".
+                    code = self.auth_manager._parse_error_code(response)
+                    if code == "public_context_exists":
+                        raise Exception(
+                            f"Public crypto context already exists on server for project {project_id}. "
+                            "Each project can only have one crypto context for security reasons."
+                        )
                     raise Exception(f"Conflict: Project {project_id} already has a public crypto context on the server.")
                 elif response.status_code != 200:
                     error_msg = self.auth_manager._parse_error_response(response)
@@ -328,11 +330,12 @@ class CryptoContextManager:
             default_timeout = self.config_manager.get_protocol_timeout()
             headers = self.auth_manager._get_auth_headers()
             response = requests.delete(
-                f"{self.server_url}/api/projects/{project_id}/crypto_context/",
+                f"{self.server_url}/api/projects/{project_id}/crypto_context",
                 headers=headers,
-                timeout=default_timeout
+                timeout=default_timeout,
+                allow_redirects=False,
             )
-            
+
             if response.status_code == 204:
                 # Success - crypto context deleted
                 self._log_audit_event("crypto_context_delete_server",
@@ -342,16 +345,12 @@ class CryptoContextManager:
             elif response.status_code == 404:
                 raise Exception(f"Project {project_id} not found or no crypto context exists")
             elif response.status_code == 403:
-                # Parse the specific error message
-                try:
-                    error_data = response.json()
-                    error_msg = error_data.get("error", "Access denied")
-                    if "not the owner" in error_msg or "owner can delete" in error_msg:
-                        raise Exception(f"Access denied: Only the project owner (researcher) can delete the crypto context")
-                    else:
-                        raise Exception(f"Access denied: {error_msg}")
-                except:
+                # Rails error.code == "forbidden" — only the owner may delete.
+                code = self.auth_manager._parse_error_code(response)
+                if code == "forbidden":
                     raise Exception("Access denied: Only the project owner (researcher) can delete the crypto context")
+                error_msg = self.auth_manager._parse_error_response(response)
+                raise Exception(f"Access denied: {error_msg}")
             else:
                 error_msg = self.auth_manager._parse_error_response(response)
                 raise Exception(f"Failed to delete server crypto context: {error_msg}")
