@@ -72,7 +72,7 @@ def main() -> None:
 
             srv.start_in_thread()
             window = webview.create_window(
-                "SecureGenomics",
+                "Gencrypt",
                 srv.url,
                 width=1240,
                 height=820,

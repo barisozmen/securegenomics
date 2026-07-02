@@ -1,28 +1,46 @@
-# SecureGenomics Desktop
+# Gencrypt Desktop
 
-A native desktop UI for the SecureGenomics (`secgen`) CLI. It is a thin, calm
-control room over the CLI's own engine — **it drives the same manager classes
-the terminal commands use**, so it inherits every guarantee the CLI makes.
+A native desktop UI for the SecureGenomics (`secgen`) CLI, styled to match the
+**gencrypt.xyz** web app (the "Quiet Ledger" look: white canvas, ink-black
+primary, IBM Plex, hairlines, a single quiet top nav). It is a thin control room
+over the CLI's own engine — **it drives the same manager classes the terminal
+commands use**, so it inherits every guarantee the CLI makes and stays in lockstep
+with it.
 
 > **Privacy custody is preserved.** Encoding and FHE encryption happen locally.
 > The FHE **secret key never leaves this machine** — only ciphertext, the public
 > crypto context, and encryption stats are ever uploaded. The desktop adds no
 > network paths of its own; it forwards to the CLI.
 
-![Quiet Ledger UI](docs/screenshot-placeholder.txt)
+## Full CLI parity
 
-## What you can do
+Everything you can do with `secgen` you can do here. Mapping of CLI commands to
+the desktop:
 
-- **Auth** — register / sign in / sign out (Gencrypt account).
-- **Projects** — create a project (auto-generates + uploads the *public* crypto
-  context), browse, view details, add members, run the computation, download &
-  **locally decrypt** results, delete.
-- **Contribute data** — pick a VCF and run the local encode → encrypt → upload
-  pipeline with live step progress.
-- **Protocols** — discover GitHub-backed protocols, fetch / refresh into the
-  local cache.
-- **Local analysis** — run a cached protocol fully offline (no server, no upload).
-- **Activity** — every background job this session, with captured CLI output.
+| CLI command group | Desktop surface |
+|---|---|
+| `auth login/register/logout/whoami` | Sign-in / sign-up screen, account menu |
+| `auth delete_profile` | System → Delete profile |
+| `protocol list/locals` | Protocols tab (remote + cached badge) |
+| `protocol fetch/refresh/remove_local` | Protocol card: Fetch / Refresh |
+| `protocol verify` | Protocol card: Verify |
+| `project create` | New project (auto keygen + public-context upload) |
+| `project list/view` | Projects grid + project detail |
+| `project add-member` | Project detail: Add member |
+| `project run` / `stop` / `job_status` / `logs` | Project detail: Run / Stop / Latest job |
+| `project result` | Project detail: Get result (downloads + decrypts locally) |
+| `project list_saved_results` | Project detail: Saved results table |
+| `project delete` | Project detail: Delete project |
+| `crypto_context generate/upload/generate_upload/download/delete` | Project detail: Crypto context panel |
+| `data encode_encrypt_upload` | Project detail: Contribute data |
+| `data encode` / `encrypt` / `upload` | Project detail: Advanced (run each step separately) |
+| `local analyze` | Local tab (fully offline) |
+| `system status` | System tab |
+| `system clear-cache` | System → Clear local cache |
+
+Long operations (create + keygen, contribute data, run, decrypt result, crypto
+context ops, local analyze) run as background jobs with live step + console
+progress; the **Activity** tab lists every job this session.
 
 ## Run it
 

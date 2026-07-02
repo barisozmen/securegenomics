@@ -84,6 +84,8 @@ def build_app(token: str, jobs: JobRegistry) -> _Router:
                lambda body, p: bridge.protocol_refresh(body.get("name", "")))
     router.add("POST", r"/api/protocols/remove",
                lambda body, p: bridge.protocol_remove(body.get("name", "")))
+    router.add("POST", r"/api/protocols/verify",
+               lambda body, p: bridge.protocol_verify(body.get("name", "")))
 
     # -- projects --------------------------------------------------------
     router.add("GET", r"/api/projects", lambda body, p: bridge.projects_list())
@@ -117,12 +119,46 @@ def build_app(token: str, jobs: JobRegistry) -> _Router:
                    "Download & decrypt result",
                    bridge.result_job(p["pid"])))
 
+    # -- crypto context (per project) ------------------------------------
+    router.add("GET", r"/api/projects/(?P<pid>[^/]+)/crypto",
+               lambda body, p: bridge.crypto_context_status(p["pid"]))
+    router.add("POST", r"/api/projects/(?P<pid>[^/]+)/crypto/generate",
+               lambda body, p: _job_started("crypto_generate", "Generate crypto context",
+                                            bridge.crypto_generate_job(p["pid"])))
+    router.add("POST", r"/api/projects/(?P<pid>[^/]+)/crypto/upload",
+               lambda body, p: _job_started("crypto_upload", "Upload public context",
+                                            bridge.crypto_upload_job(p["pid"])))
+    router.add("POST", r"/api/projects/(?P<pid>[^/]+)/crypto/generate_upload",
+               lambda body, p: _job_started("crypto_generate_upload", "Generate & upload context",
+                                            bridge.crypto_generate_upload_job(p["pid"])))
+    router.add("POST", r"/api/projects/(?P<pid>[^/]+)/crypto/download",
+               lambda body, p: _job_started("crypto_download", "Download public context",
+                                            bridge.crypto_download_job(p["pid"])))
+    router.add("POST", r"/api/projects/(?P<pid>[^/]+)/crypto/delete",
+               lambda body, p: bridge.crypto_context_delete(p["pid"], body.get("scope", "")))
+
+    # -- granular data pipeline ------------------------------------------
+    router.add("POST", r"/api/projects/(?P<pid>[^/]+)/encode",
+               lambda body, p: _job_started("data_encode", "Encode VCF",
+                                            bridge.data_encode_job(p["pid"], body.get("vcf_path", ""))))
+    router.add("POST", r"/api/projects/(?P<pid>[^/]+)/encrypt",
+               lambda body, p: _job_started("data_encrypt", "Encrypt encoded data",
+                                            bridge.data_encrypt_job(p["pid"], body.get("encoded_path", ""))))
+    router.add("POST", r"/api/projects/(?P<pid>[^/]+)/upload",
+               lambda body, p: _job_started("data_upload", "Upload ciphertext",
+                                            bridge.data_upload_job(p["pid"], body.get("encrypted_path", ""))))
+
     # -- local analysis --------------------------------------------------
     router.add("POST", r"/api/local/analyze",
                lambda body, p: _job_started(
                    "local_analyze",
                    "Local analysis (offline)",
                    bridge.local_analyze_job(body.get("protocol_name", ""), body.get("vcf_path", ""))))
+
+    # -- system / account ------------------------------------------------
+    router.add("GET", r"/api/system/status", lambda body, p: bridge.system_status())
+    router.add("POST", r"/api/system/clear-cache", lambda body, p: bridge.system_clear_cache())
+    router.add("POST", r"/api/account/delete-profile", lambda body, p: bridge.account_delete_profile())
 
     # -- jobs ------------------------------------------------------------
     router.add("GET", r"/api/jobs", lambda body, p: {"jobs": jobs.recent()})

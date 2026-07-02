@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 from securegenomics import __version__ as cli_version
 from securegenomics.auth import AuthManager
 from securegenomics.config import ConfigManager
+from securegenomics.crypto import FHEManager
 from securegenomics.crypto_context import CryptoContextManager
 from securegenomics.data import DataManager
 from securegenomics.local import LocalAnalyzer
@@ -150,6 +151,14 @@ def protocol_remove(name: str) -> Dict[str, Any]:
     with _capture() as buf:
         ok = _build(ProtocolManager).remove_local_protocol(name)
     return {"removed": bool(ok), "console": buf.getvalue()}
+
+
+def protocol_verify(name: str) -> Dict[str, Any]:
+    if not name:
+        raise BridgeError("Protocol name is required.")
+    with _capture() as buf:
+        ok = _build(ProtocolManager).verify(name)
+    return {"valid": bool(ok), "console": buf.getvalue()}
 
 
 # ---------------------------------------------------------------------------
@@ -311,3 +320,173 @@ def local_analyze_job(protocol_name: str, vcf_path: str):
         return {"output": output}
 
     return target
+
+
+# ---------------------------------------------------------------------------
+# Crypto context (the FHE keypair — secret key stays local)
+# ---------------------------------------------------------------------------
+
+def crypto_context_status(project_id: str) -> Dict[str, Any]:
+    manager = _build(CryptoContextManager)
+    return {
+        "has_local": bool(manager.has_local_crypto_context(project_id)),
+        "has_server": bool(manager.has_server_crypto_context(project_id)),
+    }
+
+
+def crypto_context_delete(project_id: str, scope: str) -> Dict[str, Any]:
+    if scope not in ("local", "server"):
+        raise BridgeError("scope must be 'local' or 'server'.")
+    manager = _build(CryptoContextManager)
+    with _capture() as buf:
+        if scope == "local":
+            if not manager.has_local_crypto_context(project_id):
+                raise BridgeError("No local crypto context to delete.")
+            ok = manager.delete_local_crypto_context(project_id)
+        else:
+            if not manager.has_server_crypto_context(project_id):
+                raise BridgeError("No server crypto context to delete.")
+            ok = manager.delete_server_crypto_context(project_id)
+    if not ok:
+        raise BridgeError(f"Failed to delete {scope} crypto context.")
+    return {"deleted": True, "console": buf.getvalue(), **crypto_context_status(project_id)}
+
+
+def crypto_generate_job(project_id: str):
+    def target(job: Job):
+        job.set_steps(["Generate keypair (local)"])
+        manager = _build(CryptoContextManager)
+        if manager.has_server_crypto_context(project_id):
+            raise BridgeError("Server already has a public context for this project.")
+        if manager.has_local_crypto_context(project_id):
+            raise BridgeError("A local crypto context already exists for this project.")
+        job.mark("Generate keypair (local)", "running")
+        with _capture() as buf:
+            manager.generate_crypto_context(project_id)
+        job.log(buf.getvalue())
+        job.mark("Generate keypair (local)", "done")
+        return crypto_context_status(project_id)
+
+    return target
+
+
+def crypto_upload_job(project_id: str):
+    def target(job: Job):
+        job.set_steps(["Upload public context"])
+        manager = _build(CryptoContextManager)
+        if manager.has_server_crypto_context(project_id):
+            raise BridgeError("Server already has a public context for this project.")
+        if not manager.has_local_crypto_context(project_id):
+            raise BridgeError("No local crypto context to upload — generate one first.")
+        job.mark("Upload public context", "running")
+        with _capture() as buf:
+            manager.upload_crypto_context(project_id)
+        job.log(buf.getvalue())
+        job.mark("Upload public context", "done")
+        return crypto_context_status(project_id)
+
+    return target
+
+
+def crypto_generate_upload_job(project_id: str):
+    def target(job: Job):
+        job.set_steps(["Generate keypair (local)", "Upload public context"])
+        manager = _build(CryptoContextManager)
+        job.mark("Generate keypair (local)", "running")
+        with _capture() as buf:
+            manager.generate_upload_crypto_context(project_id)
+        job.log(buf.getvalue())
+        job.mark("Generate keypair (local)", "done")
+        job.mark("Upload public context", "done")
+        return crypto_context_status(project_id)
+
+    return target
+
+
+def crypto_download_job(project_id: str):
+    def target(job: Job):
+        job.set_steps(["Download public context"])
+        job.mark("Download public context", "running")
+        with _capture() as buf:
+            _build(FHEManager).download_public_context(project_id)
+        job.log(buf.getvalue())
+        job.mark("Download public context", "done")
+        return {"downloaded": True}
+
+    return target
+
+
+# ---------------------------------------------------------------------------
+# Granular data pipeline (encode / encrypt / upload, run individually)
+# ---------------------------------------------------------------------------
+
+def data_encode_job(project_id: str, vcf_path: str):
+    path = Path(vcf_path).expanduser()
+    if not path.exists() or not path.is_file():
+        raise BridgeError(f"VCF file not found: {vcf_path}")
+
+    def target(job: Job):
+        job.set_steps(["Encode"])
+        job.mark("Encode", "running")
+        with _capture() as buf:
+            encoded_path = _build(DataManager).encode_vcf(project_id, path, None)
+        job.log(buf.getvalue())
+        job.mark("Encode", "done")
+        return {"encoded_path": str(encoded_path)}
+
+    return target
+
+
+def data_encrypt_job(project_id: str, encoded_path: str):
+    path = Path(encoded_path).expanduser()
+    if not path.exists() or not path.is_file():
+        raise BridgeError(f"Encoded file not found: {encoded_path}")
+
+    def target(job: Job):
+        job.set_steps(["Encrypt"])
+        job.mark("Encrypt", "running")
+        with _capture() as buf:
+            encrypted_path, stats = _build(DataManager).encrypt_vcf(project_id, path, None)
+        job.log(buf.getvalue())
+        job.mark("Encrypt", "done")
+        stats_dict = stats.to_dict() if hasattr(stats, "to_dict") else None
+        return {"encrypted_path": str(encrypted_path), "encryption_stats": _json_safe(stats_dict) if stats_dict else None}
+
+    return target
+
+
+def data_upload_job(project_id: str, encrypted_path: str):
+    path = Path(encrypted_path).expanduser()
+    if not path.exists() or not path.is_file():
+        raise BridgeError(f"Encrypted file not found: {encrypted_path}")
+
+    def target(job: Job):
+        job.set_steps(["Upload"])
+        job.mark("Upload", "running")
+        with _capture() as buf:
+            _build(DataManager).upload_data(project_id, path)
+        job.log(buf.getvalue())
+        job.mark("Upload", "done")
+        return {"uploaded": True}
+
+    return target
+
+
+# ---------------------------------------------------------------------------
+# System / account
+# ---------------------------------------------------------------------------
+
+def system_status() -> Dict[str, Any]:
+    return {"system": _json_safe(_build(ConfigManager).get_system_status())}
+
+
+def system_clear_cache() -> Dict[str, Any]:
+    with _capture() as buf:
+        _build(ConfigManager).clear_base_cache()
+    return {"cleared": True, "console": buf.getvalue()}
+
+
+def account_delete_profile() -> Dict[str, Any]:
+    with _capture() as buf:
+        ok = _build(AuthManager).delete_profile()
+    return {"deleted": bool(ok), "console": buf.getvalue()}

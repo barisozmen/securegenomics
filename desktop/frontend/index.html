@@ -3,51 +3,53 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SecureGenomics</title>
+  <title>Gencrypt</title>
   <script>window.__SG_TOKEN__ = "%%SG_TOKEN%%";</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div id="app" class="app is-loading">
-
-    <!-- Sidebar -->
-    <aside class="rail">
-      <div class="rail__brand">
-        <span class="brand__mark" aria-hidden="true"></span>
-        <span class="brand__word">SecureGenomics</span>
-      </div>
-
-      <nav class="rail__nav" id="nav" hidden>
-        <button class="nav__item" data-view="overview"><span class="nav__ico">◆</span>Overview</button>
-        <button class="nav__item" data-view="projects"><span class="nav__ico">▤</span>Projects</button>
-        <button class="nav__item" data-view="protocols"><span class="nav__ico">❯</span>Protocols</button>
-        <button class="nav__item" data-view="local"><span class="nav__ico">◐</span>Local analysis</button>
-        <button class="nav__item" data-view="activity"><span class="nav__ico">↻</span>Activity</button>
+  <!-- Top navigation (single quiet bar; no sidebar) — matches gencrypt.xyz -->
+  <header class="gc-nav" id="nav" hidden>
+    <div class="gc-nav-inner">
+      <a class="nav-brand" id="navHome">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-word">Gencrypt</span>
+      </a>
+      <nav class="nav-links" id="navLinks">
+        <button class="gc-nav-link" data-view="overview">Overview</button>
+        <button class="gc-nav-link" data-view="projects">Projects</button>
+        <button class="gc-nav-link" data-view="protocols">Protocols</button>
+        <button class="gc-nav-link" data-view="local">Local</button>
+        <button class="gc-nav-link" data-view="activity">Activity</button>
       </nav>
-
-      <div class="rail__foot">
-        <div class="conn" id="conn">
-          <span class="conn__dot" id="connDot"></span>
-          <span class="conn__label" id="connLabel">Checking…</span>
-        </div>
-        <div class="acct" id="acct" hidden>
-          <span class="acct__avatar" id="acctAvatar"></span>
-          <span class="acct__email" id="acctEmail"></span>
-          <button class="acct__out" id="signOut" title="Sign out">Sign out</button>
+      <div class="nav-right">
+        <span class="conn" id="conn" title="">
+          <span class="conn-dot" id="connDot"></span>
+          <span class="conn-label" id="connLabel">…</span>
+        </span>
+        <div class="acct-menu" id="acctMenu">
+          <button class="acct-trigger" id="acctTrigger">
+            <span class="acct-avatar" id="acctAvatar"></span>
+            <span class="acct-email" id="acctEmail"></span>
+            <span class="acct-caret">▾</span>
+          </button>
+          <div class="gc-menu" id="acctDropdown" hidden>
+            <button class="gc-menu-item" data-view="system">System status</button>
+            <button class="gc-menu-item" id="menuSignOut">Sign out</button>
+          </div>
         </div>
       </div>
-    </aside>
+    </div>
+  </header>
 
-    <!-- Main -->
-    <main class="main" id="main">
-      <div class="boot" id="boot"><span class="spinner"></span> Connecting to the engine…</div>
-    </main>
-  </div>
+  <main id="main">
+    <div class="boot" id="boot"><span class="spinner"></span> Connecting to the engine…</div>
+  </main>
 
-  <!-- Toasts -->
   <div class="toasts" id="toasts"></div>
-
-  <!-- Modal host -->
   <div class="modal-host" id="modalHost" hidden></div>
 
   <script src="/app.js"></script>
