@@ -12,20 +12,38 @@ Design notes / security:
 
 from __future__ import annotations
 
+import atexit
 import json
+import os
 import re
 import secrets
+import shutil
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from . import bridge
 from .bridge import BridgeError
 from .jobs import JobRegistry
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
+# Per-session staging dir for files the user drags in / browses to. Drag-and-drop
+# and <input type=file> only expose file *contents* in the browser, not a disk
+# path — but the CLI managers need a real path. We stream the bytes to this local
+# temp dir (loopback only) and hand the path to the CLI. Nothing here leaves the
+# machine: encode + FHE encryption still run locally, only ciphertext is uploaded.
+UPLOAD_DIR = Path(tempfile.mkdtemp(prefix="gencrypt-desktop-uploads-"))
+# 2 GiB ceiling so a runaway/hostile request can't fill the disk.
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+
+
+@atexit.register
+def _cleanup_uploads() -> None:
+    shutil.rmtree(UPLOAD_DIR, ignore_errors=True)
 
 # Set by run.py when a native pywebview window is available, so the browser-less
 # native file picker works. Stays None in browser-fallback mode.
@@ -271,6 +289,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(401, {"error": "Missing or invalid session token."})
             return
 
+        # Raw file upload (drag-and-drop / browse) is streamed to disk, so it is
+        # handled here rather than through the JSON router.
+        if path == "/api/upload-file" and method == "POST":
+            self._handle_upload()
+            return
+
         handler, params = self.router.match(method, path)
         if handler is None:
             self._send_json(404, {"error": f"No route for {method} {path}"})
@@ -284,6 +308,50 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": str(exc)})
         except Exception as exc:  # noqa: BLE001 — never leak a stack trace to the UI
             self._send_json(500, {"error": str(exc)})
+
+    def _handle_upload(self) -> None:
+        """Stream a dragged/browsed file to the local staging dir; return its path.
+
+        The original name arrives URL-encoded in ``X-SG-Filename``; we keep only
+        the basename (no path components) and prefix a random token so concurrent
+        uploads of the same name never collide. Bytes are streamed to disk in
+        chunks so a large VCF never has to sit in memory.
+        """
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length <= 0:
+            self._send_json(400, {"error": "Empty upload."})
+            return
+        if length > MAX_UPLOAD_BYTES:
+            self._send_json(413, {"error": "File too large."})
+            return
+
+        raw_name = unquote(self.headers.get("X-SG-Filename", "") or "upload.vcf")
+        safe_name = os.path.basename(raw_name.replace("\\", "/")).strip() or "upload.vcf"
+        target = UPLOAD_DIR / f"{secrets.token_hex(4)}_{safe_name}"
+
+        remaining = length
+        try:
+            with open(target, "wb") as fh:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    remaining -= len(chunk)
+        except OSError as exc:
+            self._send_json(500, {"error": f"Could not save upload: {exc}"})
+            return
+
+        if remaining > 0:  # client hung up mid-stream
+            target.unlink(missing_ok=True)
+            self._send_json(400, {"error": "Upload was incomplete."})
+            return
+
+        self._send_json(200, {
+            "path": str(target),
+            "filename": safe_name,
+            "size": target.stat().st_size,
+        })
 
     def do_GET(self) -> None:
         self._dispatch("GET")

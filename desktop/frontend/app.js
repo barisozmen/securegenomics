@@ -31,6 +31,57 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 const shortId = (id) => (id ? String(id).slice(0, 8) : "—");
+const humanSize = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : b > 1024 ? (b / 1024).toFixed(1) + " KB" : b + " B");
+
+/* Stream a File's bytes to the local server, which stages it on disk and returns
+   a real path the CLI can use. Loopback only — the plaintext never leaves the box. */
+async function uploadFile(file) {
+  const res = await fetch("/api/upload-file", {
+    method: "POST",
+    headers: { "X-SG-Token": TOKEN, "X-SG-Filename": encodeURIComponent(file.name), "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+  let data = {};
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
+  return data; // { path, filename, size }
+}
+
+/* Reusable drag-and-drop + browse control. Calls onPath(serverPath, filename)
+   once a file is staged. Works in the native window and the browser alike. */
+function fileDrop(onPath, { accept = ".vcf,.vcf.gz,.gz,.txt" } = {}) {
+  const input = el("input", { type: "file", accept, style: "display:none" });
+  const meta = el("div", { class: "drop-meta" });
+  const zone = el("div", { class: "dropzone" },
+    el("div", { class: "drop-icon" }, "⬆"),
+    el("div", { class: "drop-label" }, "Drag & drop a VCF here, or ", el("span", { class: "drop-link" }, "browse")),
+    meta,
+    el("div", { class: "drop-hint" }, "The file is encoded & FHE-encrypted locally; only ciphertext is uploaded."),
+    input);
+  let staged = null;
+  const setFile = async (file) => {
+    if (!file) return;
+    zone.classList.remove("is-ready"); zone.classList.add("is-busy");
+    meta.innerHTML = ""; meta.append(el("span", { class: "muted" }, `Staging ${file.name}…`));
+    try {
+      const { path, size } = await uploadFile(file);
+      staged = path;
+      zone.classList.remove("is-busy"); zone.classList.add("is-ready");
+      meta.innerHTML = "";
+      meta.append(el("span", { class: "drop-file" }, `✓ ${file.name}`), el("span", { class: "drop-size" }, humanSize(size)),
+        el("span", { class: "drop-link", onclick: (e) => { e.stopPropagation(); staged = null; zone.classList.remove("is-ready"); meta.innerHTML = ""; onPath(null); } }, "change"));
+      onPath(path, file.name);
+    } catch (e) {
+      zone.classList.remove("is-busy"); meta.innerHTML = ""; meta.append(el("span", { style: "color:var(--gc-error)" }, "Upload failed: " + e.message));
+    }
+  };
+  input.addEventListener("change", () => setFile(input.files[0]));
+  zone.addEventListener("click", (e) => { if (e.target !== input) input.click(); });
+  ["dragenter", "dragover"].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add("is-drag"); }));
+  ["dragleave", "dragend"].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove("is-drag"); }));
+  zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("is-drag"); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) setFile(f); });
+  return { zone, getPath: () => staged };
+}
 
 function toast(msg, kind = "") {
   const host = $("#toasts");
@@ -382,32 +433,30 @@ async function loadCrypto(pid) {
 
 /* ------ granular data pipeline (encode / encrypt / upload) ------ */
 function dataAdvancedPanel(pid) {
-  const vcf = el("input", { class: "gc-input", placeholder: "/path/to/sample.vcf" });
-  const encoded = el("input", { class: "gc-input", placeholder: "encoded file path (from Encode)" });
-  const encrypted = el("input", { class: "gc-input", placeholder: "encrypted file path (from Encrypt)" });
-  const pick = (target) => async () => {
-    try { const { path, supported } = await api("/api/pick-file", { method: "POST", body: {} });
-      if (!supported) return toast("Type the path (native picker needs the desktop window)"); if (path) target.value = path; }
-    catch (e) { toast(e.message, "err"); }
-  };
-  const step = (label, input, browse, run) => el("div", { class: "field" },
-    el("label", { class: "gc-label" }, label),
-    el("div", { class: "input-row" }, input, browse ? el("button", { class: "gc-button-secondary gc-button-sm", onclick: pick(input) }, "Browse") : null,
-      el("button", { class: "gc-button-secondary gc-button-sm", onclick: run }, "Run")));
+  let vcfPath = null;
+  const drop = fileDrop((p) => { vcfPath = p; });
+  const encoded = el("input", { class: "gc-input", placeholder: "encoded file path (auto-filled by Encode)" });
+  const encrypted = el("input", { class: "gc-input", placeholder: "encrypted file path (auto-filled by Encrypt)" });
+  const runStep = (input, run) => el("div", { class: "field" },
+    el("div", { class: "input-row" }, input, el("button", { class: "gc-button-secondary gc-button-sm", onclick: run }, "Run")));
   return el("details", { class: "adv", style: "margin-top:16px" },
     el("summary", {}, "Advanced: run encode / encrypt / upload separately"),
     el("div", { style: "padding:8px 0 14px" },
-      step("1 · Encode VCF", vcf, true, async () => {
-        if (!vcf.value.trim()) return toast("Choose a VCF file", "err");
-        await runJob(api(`/api/projects/${pid}/encode`, { method: "POST", body: { vcf_path: vcf.value.trim() } }),
-          { title: "Encode VCF", onDone: (j) => { if (j.result?.encoded_path) { encoded.value = j.result.encoded_path; toast("Encoded → path filled in step 2", "ok"); } } });
-      }),
-      step("2 · Encrypt encoded file", encoded, true, async () => {
+      el("div", { class: "field" }, el("label", { class: "gc-label" }, "1 · Encode VCF"), drop.zone,
+        el("div", { style: "margin-top:8px" }, el("button", { class: "gc-button-secondary gc-button-sm", onclick: async () => {
+          const v = drop.getPath() || vcfPath;
+          if (!v) return toast("Add a VCF file first", "err");
+          await runJob(api(`/api/projects/${pid}/encode`, { method: "POST", body: { vcf_path: v } }),
+            { title: "Encode VCF", onDone: (j) => { if (j.result?.encoded_path) { encoded.value = j.result.encoded_path; toast("Encoded → path filled in step 2", "ok"); } } });
+        } }, "Run encode"))),
+      el("label", { class: "gc-label" }, "2 · Encrypt encoded file"),
+      runStep(encoded, async () => {
         if (!encoded.value.trim()) return toast("Provide the encoded file path", "err");
         await runJob(api(`/api/projects/${pid}/encrypt`, { method: "POST", body: { encoded_path: encoded.value.trim() } }),
           { title: "Encrypt", onDone: (j) => { if (j.result?.encrypted_path) { encrypted.value = j.result.encrypted_path; toast("Encrypted → path filled in step 3", "ok"); } } });
       }),
-      step("3 · Upload ciphertext", encrypted, true, async () => {
+      el("label", { class: "gc-label" }, "3 · Upload ciphertext"),
+      runStep(encrypted, async () => {
         if (!encrypted.value.trim()) return toast("Provide the encrypted file path", "err");
         await runJob(api(`/api/projects/${pid}/upload`, { method: "POST", body: { encrypted_path: encrypted.value.trim() } }),
           { title: "Upload ciphertext", onDone: () => openProject(pid) });
@@ -455,22 +504,17 @@ async function loadProjectLogs(pid) {
 }
 
 function openContributeData(pid) {
-  const path = el("input", { class: "gc-input", placeholder: "/path/to/sample.vcf" });
-  const browse = el("button", { class: "gc-button-secondary", onclick: async () => {
-    try { const { path: picked, supported } = await api("/api/pick-file", { method: "POST", body: {} });
-      if (!supported) return toast("Type the file path (native picker needs the desktop window)"); if (picked) path.value = picked; }
-    catch (e) { toast(e.message, "err"); }
-  } }, "Browse…");
+  let vcfPath = null;
+  const drop = fileDrop((p) => { vcfPath = p; });
   modal({
     title: "Contribute encrypted data", sub: "Encode → encrypt → upload. Plaintext never leaves this machine.",
-    body: el("div", {},
-      el("div", { class: "field" }, el("label", { class: "gc-label" }, "VCF file"), el("div", { class: "input-row" }, path, browse)),
-      el("div", { class: "hint" }, "The VCF is encoded and FHE-encrypted locally; only ciphertext + stats are uploaded.")),
+    body: el("div", {}, el("div", { class: "field" }, el("label", { class: "gc-label" }, "VCF file"), drop.zone)),
     actions: [
       { label: "Cancel", class: "gc-button-ghost", onClick: (c) => c() },
       { label: "Encrypt & upload", class: "gc-button-primary", onClick: async (close) => {
-        if (!path.value.trim()) return toast("Choose a VCF file", "err"); close();
-        await runJob(api(`/api/projects/${pid}/data`, { method: "POST", body: { vcf_path: path.value.trim() } }), { title: "Contributing data", onDone: () => openProject(pid) });
+        const v = drop.getPath() || vcfPath;
+        if (!v) return toast("Add a VCF file first", "err"); close();
+        await runJob(api(`/api/projects/${pid}/data`, { method: "POST", body: { vcf_path: v } }), { title: "Contributing data", onDone: () => openProject(pid) });
       } },
     ],
   });
@@ -563,15 +607,14 @@ function protocolCard(p, cached) {
 /* =========================================================== LOCAL VIEW */
 async function viewLocal() {
   const protoSel = el("select", { class: "gc-select" }, el("option", { value: "" }, "Loading cached protocols…"));
-  const path = el("input", { class: "gc-input", placeholder: "/path/to/sample.vcf" });
-  const browse = el("button", { class: "gc-button-secondary", onclick: async () => {
-    try { const { path: picked, supported } = await api("/api/pick-file", { method: "POST", body: {} }); if (!supported) return toast("Type the file path (native picker needs the desktop window)"); if (picked) path.value = picked; }
-    catch (e) { toast(e.message, "err"); }
-  } }, "Browse…");
+  let vcfPath = null;
+  const drop = fileDrop((p) => { vcfPath = p; });
   const run = el("button", { class: "gc-button-primary" }, "Run local analysis");
   run.onclick = async () => {
-    if (!protoSel.value) return toast("Choose a protocol", "err"); if (!path.value.trim()) return toast("Choose a VCF file", "err");
-    await runJob(api("/api/local/analyze", { method: "POST", body: { protocol_name: protoSel.value, vcf_path: path.value.trim() } }),
+    if (!protoSel.value) return toast("Choose a protocol", "err");
+    const v = drop.getPath() || vcfPath;
+    if (!v) return toast("Add a VCF file first", "err");
+    await runJob(api("/api/local/analyze", { method: "POST", body: { protocol_name: protoSel.value, vcf_path: v } }),
       { title: "Local analysis (offline)", onDone: (job) => modal({ title: "Local result", sub: "Computed entirely offline",
         body: el("pre", { class: "gc-command-block" }, (job.result && job.result.output) || "Done."),
         actions: [{ label: "Close", class: "gc-button-primary", onClick: (c) => c() }] }) });
@@ -582,8 +625,8 @@ async function viewLocal() {
       el("div", { class: "panel-head" }, el("div", { class: "gc-panel-title" }, "Analyze a VCF on this machine"), el("span", {})),
       el("div", { class: "panel-body" },
         el("div", { class: "field" }, el("label", { class: "gc-label" }, "Protocol (cached)"), protoSel),
-        el("div", { class: "field" }, el("label", { class: "gc-label" }, "VCF file"), el("div", { class: "input-row" }, path, browse)),
-        el("div", { class: "hint", style: "margin-bottom:16px" }, "Only locally cached protocols run offline. Fetch a protocol first from the Protocols tab."),
+        el("div", { class: "field" }, el("label", { class: "gc-label" }, "VCF file"), drop.zone),
+        el("div", { class: "hint", style: "margin:6px 0 16px" }, "Only locally cached protocols run offline. Fetch a protocol first from the Protocols tab."),
         run)));
   try {
     const { protocols } = await api("/api/protocols/local");

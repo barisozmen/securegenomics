@@ -42,6 +42,13 @@ Long operations (create + keygen, contribute data, run, decrypt result, crypto
 context ops, local analyze) run as background jobs with live step + console
 progress; the **Activity** tab lists every job this session.
 
+**Files**: VCFs are added by **drag-and-drop or browse** (Contribute data, Local
+analysis, and the Advanced encode step). Because a browser only exposes a file's
+contents (not its disk path), the dropped/selected bytes are streamed to a local
+staging dir on this machine over loopback, and that path is handed to the CLI —
+the plaintext never leaves the box; encode + FHE encryption still run locally and
+only ciphertext is uploaded to the server.
+
 ## Run it
 
 From the repo root, make sure the CLI is available (either installed via

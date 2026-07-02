@@ -200,6 +200,20 @@ button { font-family: inherit; cursor: pointer; }
 .spinner { width: 14px; height: 14px; border: 2px solid var(--gc-border); border-top-color: var(--gc-text); border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; }
 .back { border: 0; background: none; color: var(--gc-muted); font-size: 14px; padding: 0 0 14px; display: inline-flex; gap: 6px; align-items: center; }
 .back:hover { color: var(--gc-text); }
+/* ---------- Dropzone ---------- */
+.dropzone { border: 1.5px dashed var(--gc-border-strong); border-radius: var(--r-panel); background: var(--gc-surface-tint); padding: 26px 20px; text-align: center; cursor: pointer; transition: border-color .12s, background .12s; }
+.dropzone:hover { border-color: var(--gc-text); }
+.dropzone.is-drag { border-color: var(--gc-text); background: var(--gc-primary-soft); }
+.dropzone.is-ready { border-style: solid; border-color: var(--gc-success); background: var(--gc-success-soft); }
+.dropzone.is-busy { opacity: .75; cursor: progress; }
+.drop-icon { font-size: 22px; line-height: 1; }
+.drop-label { font-size: 14px; color: var(--gc-muted); margin-top: 8px; }
+.drop-link { color: var(--gc-text); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.drop-meta { margin-top: 10px; font-size: 13px; display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.drop-file { color: var(--gc-success); font-weight: 600; }
+.drop-size { color: var(--gc-muted); font-family: var(--mono); }
+.drop-hint { font-size: 12px; color: var(--gc-faint); margin-top: 6px; }
+
 details.adv { border: 1px solid var(--gc-border); border-radius: var(--r); padding: 4px 14px; }
 details.adv summary { cursor: pointer; padding: 10px 0; font-size: 14px; font-weight: 500; color: var(--gc-muted); }
 details.adv[open] summary { color: var(--gc-text); }
