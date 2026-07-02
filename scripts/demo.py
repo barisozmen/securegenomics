@@ -24,8 +24,9 @@ The custody boundary is the whole point: the FHE secret key never leaves a data
 owner/researcher machine. Only ciphertext + the PUBLIC context reach the server.
 
 Usage:
-    # dev server must be running (bin/dev) — the demo auto-detects its port
+    # runs against the production Gencrypt server (https://gencrypt.xyz) by default
     python scripts/demo.py
+    # point at a local dev server instead (bin/dev must be running)
     SECUREGENOMICS_SERVER_URL=http://localhost:3490 python scripts/demo.py
 
 Exit code 0 iff both scenarios pass.
@@ -39,7 +40,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import uuid
 from pathlib import Path
 
 # --------------------------------------------------------------------------- #
@@ -55,6 +55,8 @@ RAILS_REPO = Path(
 SECGEN_REPO = Path(__file__).resolve().parents[1]
 REAL_HOME = os.environ.get("HOME", str(Path.home()))
 PASSWORD = "Demo-Passw0rd-123"
+RESEARCHER_EMAIL = "res@example.com"
+OWNER_EMAILS = ["user1@example.com", "user2@example.com"]
 AGG_PROTOCOL = "alzheimers-sensitive-allele-frequency"   # aggregated (multi-player)
 LOCAL_PROTOCOL = "alzheimer-prs"                          # local (single-player)
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -63,20 +65,12 @@ C_OK, C_ERR, C_HEAD, C_DIM, C_END = "\033[92m", "\033[91m", "\033[95m", "\033[90
 
 
 def resolve_server_url() -> str:
+    # Default to the pinned production server (https://gencrypt.xyz). Only an
+    # explicit SECUREGENOMICS_SERVER_URL override (e.g. a local `bin/dev` server)
+    # points the demo elsewhere.
     if os.environ.get("SECUREGENOMICS_SERVER_URL"):
         return os.environ["SECUREGENOMICS_SERVER_URL"].rstrip("/")
-    # Ask the Rails repo which port its dev server is on.
-    finder = RAILS_REPO / "bin" / "find_server_port"
-    if finder.exists():
-        try:
-            out = subprocess.run(
-                [str(finder), "--url"], capture_output=True, text=True, timeout=15
-            ).stdout.strip()
-            if out.startswith("http"):
-                return out.rstrip("/")
-        except Exception:
-            pass
-    return "http://localhost:3490"
+    return "https://gencrypt.xyz"
 
 
 def resolve_secgen() -> list[str]:
@@ -86,8 +80,37 @@ def resolve_secgen() -> list[str]:
     return [sys.executable, "-m", "securegenomics"]
 
 
+def resolve_github_token() -> str:
+    """Return a GitHub token for protocol fetches, or "" to force anonymous.
+
+    The demo makes many GitHub REST calls — each party re-fetches and re-verifies
+    the protocol under its OWN $HOME, so the cache isn't shared — which blows the
+    60 req/hr anonymous limit partway through. Prefer an authenticated token
+    (5000 req/hr). Resolution order:
+      1. GITHUB_TOKEN from the real shell env, if the user exported one.
+      2. `gh auth token`, if the GitHub CLI is installed and logged in.
+      3. "" — force anonymous, blanking the var so a stale/expired token left in
+         src/securegenomics/.env (which python-decouple reads) can't 401 fetches.
+    """
+    tok = os.environ.get("GITHUB_TOKEN", "").strip()
+    if tok:
+        return tok
+    gh = shutil.which("gh")
+    if gh:
+        try:
+            proc = subprocess.run(
+                [gh, "auth", "token"], capture_output=True, text=True, timeout=15
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip()
+        except Exception:
+            pass
+    return ""
+
+
 SERVER_URL = resolve_server_url()
 SECGEN = resolve_secgen()
+GITHUB_TOKEN = resolve_github_token()
 # The inline `bin/rails runner` fallback only makes sense for a LOCAL dev server
 # (it drives the local Rails DB). Against a remote server (e.g. gencrypt.xyz) the
 # computation must happen ON that server's own worker; never fall back locally.
@@ -114,29 +137,86 @@ def ok(msg: str) -> None:
     print(f"  {C_OK}✔ {msg}{C_END}", flush=True)
 
 
-def secgen(home: Path, *args: str, server: bool = True, check: bool = True) -> str:
+def _print_secgen_command(args: tuple[str, ...]) -> None:
+    printable = " ".join(["secgen", *args])
+    print(f"    {C_DIM}$ {printable}{C_END}", flush=True)
+
+
+def _print_secgen_output(out: str) -> None:
+    for line in out.strip().splitlines():
+        print(f"      {C_DIM}{line}{C_END}", flush=True)
+
+
+def secgen(
+    home: Path,
+    *args: str,
+    server: bool = True,
+    check: bool = True,
+    show: bool = True,
+) -> str:
     """Invoke the real `secgen` binary as `home`'s user; return combined output."""
     env = dict(os.environ)
     env["HOME"] = str(home)
-    # Protocols are public repos; force anonymous GitHub access so a stale/expired
-    # GITHUB_TOKEN (e.g. one left in src/securegenomics/.env, which python-decouple
-    # reads) can't 401 protocol fetches. os.environ overrides decouple's .env.
-    env["GITHUB_TOKEN"] = ""
+    # Protocols are public repos. The demo hits GitHub many times (each party
+    # re-fetches/verifies the protocol under its own HOME), so anonymous access
+    # (60 req/hr) runs out mid-run. Use an authenticated token when we can find
+    # one (5000 req/hr); otherwise blank the var so a stale/expired token in
+    # src/securegenomics/.env (read by python-decouple) can't 401 fetches.
+    # os.environ overrides decouple's .env. See resolve_github_token().
+    env["GITHUB_TOKEN"] = GITHUB_TOKEN
     if server:
         env["SECUREGENOMICS_SERVER_URL"] = SERVER_URL
     else:
         env.pop("SECUREGENOMICS_SERVER_URL", None)
-    printable = " ".join(["secgen", *args])
-    print(f"    {C_DIM}$ {printable}{C_END}", flush=True)
+    if show:
+        _print_secgen_command(args)
     proc = subprocess.run(
         [*SECGEN, *args], env=env, capture_output=True, text=True, timeout=600
     )
     out = (proc.stdout or "") + (proc.stderr or "")
-    for line in out.strip().splitlines():
-        print(f"      {C_DIM}{line}{C_END}", flush=True)
+    if show:
+        _print_secgen_output(out)
     if check and proc.returncode != 0:
+        printable = " ".join(["secgen", *args])
         raise DemoError(f"`{printable}` exited {proc.returncode}")
     return out
+
+
+def create_or_login_demo_account(home: Path, email: str) -> None:
+    """Create the fixed demo account, or log in if it already exists."""
+    register_args = (
+        "register",
+        "--non-interactive",
+        "--email",
+        email,
+        "--password",
+        PASSWORD,
+    )
+    register_out = secgen(home, *register_args, check=False, show=False)
+    if "Successfully registered" in register_out:
+        _print_secgen_command(register_args)
+        _print_secgen_output(register_out)
+        return
+
+    login_args = (
+        "login",
+        "--non-interactive",
+        "--email",
+        email,
+        "--password",
+        PASSWORD,
+    )
+    login_out = secgen(home, *login_args, check=False, show=False)
+    if "Successfully logged in" in login_out:
+        _print_secgen_command(login_args)
+        _print_secgen_output(login_out)
+        return
+
+    _print_secgen_command(register_args)
+    _print_secgen_output(register_out)
+    _print_secgen_command(login_args)
+    _print_secgen_output(login_out)
+    raise DemoError(f"could not authenticate fixed demo account {email}")
 
 
 def wait_for_terminal_status(home: Path, project_id: str, timeout: int = 90) -> str | None:
@@ -248,13 +328,12 @@ def scenario_single_player(work: Path) -> None:
 def scenario_multi_player(work: Path) -> None:
     head("SCENARIO 2 — Multi player (encrypted allele frequency across 3 parties)")
 
-    tag = uuid.uuid4().hex[:8]
     researcher = work / "researcher"
     owners = [work / "owner1", work / "owner2"]
     for d in [researcher, *owners]:
         d.mkdir(parents=True, exist_ok=True)
-    r_email = f"researcher-{tag}@demo.gencrypt.test"
-    o_emails = [f"owner{i}-{tag}@demo.gencrypt.test" for i in (1, 2)]
+    r_email = RESEARCHER_EMAIL
+    o_emails = OWNER_EMAILS
 
     # Two data owners' genomes. The alt-allele count per variant is sum(GT); the
     # protocol sums these homomorphically across owners. Derive the ground truth
@@ -276,17 +355,27 @@ def scenario_multi_player(work: Path) -> None:
         write_vcf(path, gts)
 
     # A local checkout of the protocol for the server-side runner (offline path).
+    # Only the LOCAL dev-server fallback (rails_worker_compute) needs it; the
+    # remote server computes with its own protocol checkout.
     protocol_dir = work / "protocol"
-    subprocess.run(
-        ["git", "clone", "--depth", "1", "-q",
-         f"https://github.com/securegenomics/protocol-{AGG_PROTOCOL}", str(protocol_dir)],
-        check=True, timeout=120,
-    )
+    if IS_LOCAL_SERVER:
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "-q",
+             f"https://github.com/securegenomics/protocol-{AGG_PROTOCOL}", str(protocol_dir)],
+            check=True, timeout=120,
+        )
 
-    # 1. Researcher account + project (auto keygen + public-context upload).
-    step("Researcher registers and creates the project (auto-generates the FHE "
-         "keypair, uploads only the PUBLIC context)")
-    secgen(researcher, "register", "--non-interactive", "--email", r_email, "--password", PASSWORD)
+    # 1. Create all accounts first. The researcher creates/runs the project;
+    # data owners are created before the project is configured.
+    step("Create the researcher and data-owner accounts")
+    create_or_login_demo_account(researcher, r_email)
+    for od, oe in zip(owners, o_emails):
+        create_or_login_demo_account(od, oe)
+    ok("researcher and data-owner accounts are ready")
+
+    # 2. Researcher creates the project (auto keygen + public-context upload).
+    step("Researcher creates the project (auto-generates the FHE keypair, "
+         "uploads only the PUBLIC context)")
     create_out = secgen(researcher, "create", "--non-interactive", "-p", AGG_PROTOCOL)
     ids = UUID_RE.findall(create_out)
     if not ids:
@@ -301,21 +390,19 @@ def scenario_multi_player(work: Path) -> None:
         raise DemoError("researcher has no local private context — keygen did not run")
     ok(f"private (secret-key) context stays local: {private_files[0].relative_to(researcher)}")
 
-    # 2. Data owners register; researcher grants them membership.
-    step("Two data owners register; researcher grants them project membership")
-    for od, oe in zip(owners, o_emails):
-        secgen(od, "register", "--non-interactive", "--email", oe, "--password", PASSWORD)
+    # 3. Researcher grants the already-created data owners membership.
+    step("Researcher grants the data owners project membership")
     for oe in o_emails:
         secgen(researcher, "project", "add-member", pid, oe)
     ok("both data owners are now members and can contribute encrypted genomes")
 
-    # 3. Each data owner encodes + encrypts + uploads (ciphertext only).
+    # 4. Each data owner encodes + encrypts + uploads (ciphertext only).
     step("Each data owner encrypts their genome locally and uploads ONLY ciphertext")
     for od, vcf in zip(owners, vcfs):
         secgen(od, "upload", pid, str(vcf))
     ok("2 encrypted genome submissions uploaded (server holds ciphertext only)")
 
-    # 4. Researcher starts the run; the server-side worker computes homomorphically.
+    # 5. Researcher starts the run; the server-side worker computes homomorphically.
     step("Researcher starts the computation; the Gencrypt worker sums the "
          "ciphertext homomorphically (no secret key on the server)")
     run_out = secgen(researcher, "run", pid, check=False)   # enqueue via the real CLI/API
@@ -354,7 +441,7 @@ def scenario_multi_player(work: Path) -> None:
         ok(f"inline worker ran the homomorphic circuit over {expected_genomes} "
            "ciphertext submissions and produced an ENCRYPTED aggregate result")
 
-    # 5. Researcher checks status and downloads + decrypts + interprets.
+    # 6. Researcher checks status and downloads + decrypts + interprets.
     step("Researcher checks status and fetches the result (decrypts locally)")
     secgen(researcher, "status", pid, check=False)
     result_out = secgen(researcher, "result", pid)
@@ -391,6 +478,7 @@ def main() -> int:
     print(f"  server : {SERVER_URL}")
     print(f"  secgen : {' '.join(SECGEN)}")
     print(f"  rails  : {RAILS_REPO}")
+    print(f"  github : {'authenticated (5000 req/hr)' if GITHUB_TOKEN else 'anonymous (60 req/hr — may hit rate limits)'}")
 
     # Fail fast if the server isn't up.
     try:
@@ -399,7 +487,8 @@ def main() -> int:
             if r.status != 200:
                 raise RuntimeError(f"/up returned {r.status}")
     except Exception as e:
-        print(f"{C_ERR}Dev server not reachable at {SERVER_URL} ({e}). Start it with `bin/dev`.{C_END}")
+        hint = "Start it with `bin/dev`." if IS_LOCAL_SERVER else "Check your network / the server status."
+        print(f"{C_ERR}Server not reachable at {SERVER_URL} ({e}). {hint}{C_END}")
         return 1
 
     work = Path(tempfile.mkdtemp(prefix="secgen-demo-"))
