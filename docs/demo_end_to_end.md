@@ -64,14 +64,21 @@ stages the public context + ciphertext into a work dir and invokes
   never reads a secret key / private context (and refuses private-looking files).
 - `script/gencrypt_run_worker.rb` — a dev helper that runs a project's
   `ComputationJob` inline with the runner configured, so you don't need a
-  separate Solid Queue worker. `scripts/demo.py` uses it to compute against the
-  already-running dev server. In production a Solid Queue worker started with
+  separate Solid Queue worker. In production a Solid Queue worker started with
   `GENCRYPT_RUNNER_COMMAND` set does this automatically.
 
-`bin/dev` now defaults `GENCRYPT_RUNNER_COMMAND` to `python3
-script/gencrypt_fhe_runner.py`, so a freshly-started dev server processes
-`secgen run` end-to-end on its own. The runner needs a Python with TenSEAL
-installed (override with `GENCRYPT_RUNNER_PYTHON`).
+`bin/dev` resolves an absolute, TenSEAL-capable `python3` and exports
+`GENCRYPT_RUNNER_COMMAND=<that python> script/gencrypt_fhe_runner.py`, so a
+freshly-started dev server processes `secgen run` end-to-end on its own via its
+in-process async worker (override the interpreter with `GENCRYPT_RUNNER_PYTHON`,
+or the whole command with `GENCRYPT_RUNNER_COMMAND`).
+
+`scripts/demo.py` therefore **prefers the real async path**: after `secgen run`
+it polls `secgen status` and, if the running server computes the job on its own,
+uses that result. Only if the server has no runner configured (job never
+settles / fails) does it fall back to the inline `gencrypt_run_worker.rb` helper,
+and it says so. Either way, a green run means the FHE math round-tripped through
+real ciphertext.
 
 ## Troubleshooting
 
@@ -85,5 +92,9 @@ installed (override with `GENCRYPT_RUNNER_PYTHON`).
   migration. Restart `bin/dev` (or touch a model file to trigger a reload) so it
   picks up the applied migration.
 - **`server-side compute failed` / `runner exited status 2`**: the runner needs
-  TenSEAL and network (to clone the protocol). Set `GENCRYPT_RUNNER_DEBUG_LOG`
-  to a path to capture a trace (the Rails job discards the runner's stdout).
+  TenSEAL and network (to clone the protocol). `RunComputationJob` now captures
+  the runner's **stderr** and surfaces a sanitized tail in the job's
+  `error_summary` (visible via `secgen status` / `secgen job_logs`), so the real
+  cause — e.g. "the FHE backend TenSEAL is not importable by this runner" — is
+  reported directly. `GENCRYPT_RUNNER_DEBUG_LOG=<path>` still captures a fuller
+  human-readable trace.

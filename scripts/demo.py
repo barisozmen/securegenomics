@@ -88,6 +88,10 @@ def resolve_secgen() -> list[str]:
 
 SERVER_URL = resolve_server_url()
 SECGEN = resolve_secgen()
+# The inline `bin/rails runner` fallback only makes sense for a LOCAL dev server
+# (it drives the local Rails DB). Against a remote server (e.g. gencrypt.xyz) the
+# computation must happen ON that server's own worker; never fall back locally.
+IS_LOCAL_SERVER = any(h in SERVER_URL for h in ("localhost", "127.0.0.1", "[::1]"))
 
 # --------------------------------------------------------------------------- #
 # Small harness
@@ -133,6 +137,28 @@ def secgen(home: Path, *args: str, server: bool = True, check: bool = True) -> s
     if check and proc.returncode != 0:
         raise DemoError(f"`{printable}` exited {proc.returncode}")
     return out
+
+
+def wait_for_terminal_status(home: Path, project_id: str, timeout: int = 90) -> str | None:
+    """Poll `secgen status` until the server's job reaches a terminal state.
+
+    Returns "completed"/"failed" once the job settles, or the last-seen status
+    (or None) on timeout. Used to detect whether the running server computes the
+    job on its own (async worker path) before we fall back to the inline helper.
+    """
+    import time
+
+    deadline = time.time() + timeout
+    last: str | None = None
+    while time.time() < deadline:
+        out = secgen(home, "status", project_id, check=False)
+        m = re.search(r"status:\s*([a-z_]+)", out.lower())
+        if m:
+            last = m.group(1)
+            if last in ("completed", "failed"):
+                return last
+        time.sleep(3)
+    return last
 
 
 def rails_worker_compute(project_id: str, protocol_dir: Path) -> str:
@@ -295,15 +321,38 @@ def scenario_multi_player(work: Path) -> None:
     run_out = secgen(researcher, "run", pid, check=False)   # enqueue via the real CLI/API
     if "Job ID" not in run_out and "Started computation" not in run_out:
         raise DemoError("`secgen run` did not confirm the computation was enqueued")
-    worker_out = rails_worker_compute(pid, protocol_dir)    # the configured FHE runner does the work
-    m = re.search(r"submissions=(\d+)", worker_out)
-    if not m or int(m.group(1)) != expected_genomes:
+
+    # Prefer the REAL async path: if the running server has a runner configured
+    # (a freshly-started `bin/dev` exports GENCRYPT_RUNNER_COMMAND), its OWN async
+    # worker computes the job — proving "the Rails app runs the Python runner".
+    # Only if the server can't self-compute do we fall back to the inline dev
+    # worker helper (bin/rails runner), and we say so loudly.
+    final_status = wait_for_terminal_status(researcher, pid, timeout=180 if not IS_LOCAL_SERVER else 90)
+    if final_status == "completed":
+        ok("the server computed the job on its own worker (async/Solid Queue path) "
+           "and produced an ENCRYPTED aggregate result")
+    elif not IS_LOCAL_SERVER:
+        # Remote server (e.g. gencrypt.xyz): the compute MUST run there. Do not
+        # fall back to a local bin/rails runner (that would hit the local DB).
+        secgen(researcher, "status", pid, check=False)
         raise DemoError(
-            f"worker processed {m.group(1) if m else '?'} submissions, "
-            f"expected {expected_genomes}"
+            f"remote server {SERVER_URL} did not compute the job "
+            f"(status={final_status or 'timeout'}). Its Solid Queue worker needs a "
+            "working GENCRYPT_RUNNER_COMMAND (python+TenSEAL). Check `secgen status`/job logs."
         )
-    ok(f"server ran the homomorphic circuit over {expected_genomes} ciphertext "
-       "submissions and produced an ENCRYPTED aggregate result")
+    else:
+        why = f"job status={final_status or 'timeout'}"
+        step(f"local server did not self-compute ({why}); falling back to the inline "
+             "dev worker (bin/rails runner) with the FHE runner configured")
+        worker_out = rails_worker_compute(pid, protocol_dir)   # configured FHE runner does the work
+        m = re.search(r"submissions=(\d+)", worker_out)
+        if not m or int(m.group(1)) != expected_genomes:
+            raise DemoError(
+                f"worker processed {m.group(1) if m else '?'} submissions, "
+                f"expected {expected_genomes}"
+            )
+        ok(f"inline worker ran the homomorphic circuit over {expected_genomes} "
+           "ciphertext submissions and produced an ENCRYPTED aggregate result")
 
     # 5. Researcher checks status and downloads + decrypts + interprets.
     step("Researcher checks status and fetches the result (decrypts locally)")
