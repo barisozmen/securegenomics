@@ -1,0 +1,9 @@
+# SecureGenomics Desktop
+#
+# The desktop app itself needs NO third-party packages for the backend or UI —
+# it uses only the Python standard library plus the SecureGenomics CLI engine
+# (installed via the repo's setup.sh, or auto-discovered from ../src).
+#
+# pywebview is OPTIONAL: install it for a native desktop window. Without it, the
+# app falls back to opening in your default browser.
+pywebview>=4.0 ; sys_platform != "unknown"
